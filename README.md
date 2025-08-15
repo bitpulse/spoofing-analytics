@@ -2,34 +2,66 @@
 
 PLAN
 
-## **🎯 COMPLETE BINANCE DATA COLLECTION GUIDE FOR WHALE TRACKING**
+## **🎯 COMPLETE FUTURES-ONLY DATA COLLECTION PLAN**
 
-Based on Binance API research, here's EXACTLY what data you need to collect and why each piece matters for whale detection.
+Here's EXACTLY what futures data to collect from Binance for whale tracking.
 
 ---
 
-## **📊 1. ORDER BOOK DATA (Most Critical)**
+## **📊 FUTURES DATA HIERARCHY**
 
-### **WebSocket Stream: `depth20@100ms` or `depth@100ms`**
+```
+CRITICAL (Must Have):
+├── Order Book Depth (100ms updates)
+├── Aggregated Trades (real-time)
+└── Liquidations (real-time)
 
-**What to Collect:**
+IMPORTANT (Need Within Week 1):
+├── Open Interest (30-second updates)
+├── Funding Rate (5-minute updates)
+└── Mark Price (1-second updates)
+
+VALUABLE (Add Week 2):
+├── Long/Short Ratio (15-minute updates)
+├── Top Trader Positions (5-minute updates)
+└── Klines 1m/5m (completed candles)
+
+OPTIONAL (Nice to Have):
+├── Book Ticker (fastest spread)
+├── 24hr Ticker Stats
+└── Composite Index Price
+```
+
+---
+
+## **🔴 TIER 1: CRITICAL DATA (Start Immediately)**
+
+### **1. FUTURES ORDER BOOK DEPTH**
+
+**WebSocket:** `wss://fstream.binance.com/ws/btcusdt@depth20@100ms`
+
+**Raw Data Structure:**
 
 ```javascript
 {
-  "e": "depthUpdate",      // Event type
-  "E": 1672515782136,      // Event time (server timestamp)
-  "s": "BTCUSDT",          // Symbol
-  "U": 157,                // First update ID in event
-  "u": 160,                // Final update ID in event
-  "b": [                   // Bids to be updated
-    ["43250.00", "125.5"], // [price, quantity]
-    ["43249.50", "89.2"],
-    // ... collect ALL levels (20-50 levels ideal)
+  "e": "depthUpdate",
+  "E": 1681877152136,      // Event time (server timestamp)
+  "T": 1681877152123,      // Transaction time
+  "s": "BTCUSDT",
+  "U": 3251658789,         // First update ID in event
+  "u": 3251658852,         // Final update ID in event
+  "pu": 3251658788,        // Previous final update ID
+  "b": [                   // Bids
+    ["43250.00", "125.532"],  // [price, contracts]
+    ["43249.90", "89.221"],
+    ["43249.80", "45.500"],
+    // ... up to 20 levels
   ],
-  "a": [                   // Asks to be updated
-    ["43251.00", "98.3"],
-    ["43251.50", "156.7"],
-    // ... collect ALL levels
+  "a": [                   // Asks
+    ["43250.10", "98.332"],
+    ["43250.20", "156.773"],
+    ["43250.30", "67.100"],
+    // ... up to 20 levels
   ]
 }
 ```
@@ -37,476 +69,528 @@ Based on Binance API research, here's EXACTLY what data you need to collect and 
 **What to Calculate & Store:**
 
 ```python
-For EACH snapshot (every 100ms):
-- timestamp (both local and server E)
-- update_id (u) - CRITICAL for sequence validation
-- best_bid_price, best_bid_size
-- best_ask_price, best_ask_size
-- spread (ask - bid)
-- mid_price ((ask + bid) / 2)
-
-For EACH price level:
-- price
-- size
-- order_count (if available from depth5@100ms stream)
-- value_usd (price × size)
-- is_whale (value > $100k)
-- distance_from_mid (percentage from mid price)
-
-Aggregated Metrics:
-- total_bid_volume (sum of all bid sizes)
-- total_ask_volume (sum of all ask sizes)
-- bid_ask_ratio (bid_vol / ask_vol)
-- weighted_bid_price (volume-weighted average)
-- weighted_ask_price
-- imbalance ((bid_vol - ask_vol) / (bid_vol + ask_vol))
-
-Whale-Specific:
-- whale_bid_count (orders > $100k)
-- whale_ask_count
-- largest_bid_size, largest_bid_price
-- largest_ask_size, largest_ask_price
-- whale_volume_percentage (whale_vol / total_vol)
-```
-
-**Why This Matters:**
-
-- **100ms updates**: Whales can place/cancel orders in 200ms
-- **Update IDs**: Detect if you missed data (critical for accuracy)
-- **Deep book (20+ levels)**: Whales often hide orders away from best bid/ask
-- **Order count**: Multiple orders at same price = real interest vs single whale
-
----
-
-## **📈 2. TRADE DATA**
-
-### **WebSocket Stream: `aggTrade`**
-
-**What to Collect:**
-
-```javascript
+EVERY 100ms snapshot:
 {
-  "e": "aggTrade",         // Event type
-  "E": 1672515782136,      // Event time
-  "s": "BTCUSDT",          // Symbol
-  "a": 12345,              // Aggregate trade ID
-  "p": "43250.50",         // Price
-  "q": "15.5",             // Quantity
-  "f": 100,                // First trade ID
-  "l": 105,                // Last trade ID
-  "T": 1672515782136,      // Trade time
-  "m": true,               // Is buyer the maker?
-  "M": true                // Best price match?
+    # Metadata
+    'timestamp_server': E,
+    'timestamp_local': time.time(),
+    'symbol': 'BTCUSDT',
+    'update_id': u,
+    'update_id_gap': u - pu,  # Should be small, detect missed data
+
+    # Price Levels
+    'best_bid': b[0][0],
+    'best_bid_size': b[0][1],
+    'best_ask': a[0][0],
+    'best_ask_size': a[0][1],
+
+    # Spreads
+    'spread': best_ask - best_bid,
+    'spread_bps': (spread / best_bid) * 10000,  # Basis points
+    'mid_price': (best_bid + best_ask) / 2,
+
+    # Volume Analysis (Top 20 levels)
+    'bid_volume_total': sum(all_bid_sizes),
+    'ask_volume_total': sum(all_ask_sizes),
+    'bid_volume_value': sum(price * size for bids),  # USD value
+    'ask_volume_value': sum(price * size for asks),
+
+    # Whale Detection
+    'whale_bids': [
+        {
+            'price': price,
+            'size': size,
+            'value_usd': price * size,
+            'level': i,  # Distance from best bid
+            'percentage_of_book': (size / total_bid_volume) * 100
+        }
+        for price, size in bids if price * size > 100000
+    ],
+    'whale_asks': [...],  # Same structure
+
+    # Imbalance Metrics
+    'volume_imbalance': (bid_vol - ask_vol) / (bid_vol + ask_vol),
+    'value_imbalance': (bid_value - ask_value) / (bid_value + ask_value),
+    'whale_imbalance': (whale_bid_count - whale_ask_count),
+
+    # Order Book Shape
+    'bid_slope': calculate_slope(bid_prices, bid_sizes),  # Steepness
+    'ask_slope': calculate_slope(ask_prices, ask_sizes),
+    'book_skew': bid_slope - ask_slope,  # Asymmetry
+
+    # Depth Metrics
+    'depth_1_percent': volume_within_1_percent_of_mid,
+    'depth_10bps': volume_within_10_basis_points,
+    'resistance_level': first_ask_over_1M_usd,
+    'support_level': first_bid_over_1M_usd
 }
 ```
 
-**What to Store:**
+**Storage Strategy:**
 
 ```python
-For EACH trade:
-- timestamp (T)
-- price
-- quantity
-- value_usd (price × quantity)
-- is_buyer_maker (m) - CRITICAL for determining aggression
-- trade_count (l - f + 1) - how many orders filled
+if whale_detected or significant_change:
+    store_full_snapshot()  # All 20 levels
+else:
+    store_compressed()  # Just metrics, not raw data
 
-Calculated Fields:
-- is_whale_trade (value > $50k)
-- price_impact (% change from previous trade)
-- side ('buy' if m=false, 'sell' if m=true)
-- unusual_size (size > 3× recent average)
-
-Aggregated (every minute):
-- total_buy_volume
-- total_sell_volume
-- buy_sell_ratio
-- average_trade_size
-- whale_trade_count
-- vwap (volume-weighted average price)
+# Keep rolling window in memory
+last_100_snapshots = deque(maxlen=100)  # Last 10 seconds
 ```
-
-**Why This Matters:**
-
-- **Buyer maker (m)**: Shows aggression - market buying/selling
-- **Trade clustering**: Many trades at same price = accumulation/distribution
-- **Trade size**: Whales often split orders but aggregate trades reveal them
 
 ---
 
-## **💥 3. LIQUIDATION DATA (Futures Specific)**
+### **2. FUTURES AGGREGATED TRADES**
 
-### **WebSocket Stream: `forceOrder` or `allForceOrder`**
+**WebSocket:** `wss://fstream.binance.com/ws/btcusdt@aggTrade`
 
-**What to Collect:**
+**Raw Data Structure:**
 
 ```javascript
 {
-  "e": "forceOrder",       // Event Type
-  "E": 1672515782136,      // Event Time
+  "e": "aggTrade",
+  "E": 1681877152136,    // Event time
+  "a": 812361844,        // Aggregate trade ID
+  "s": "BTCUSDT",
+  "p": "43250.50",       // Price
+  "q": "15.532",         // Quantity (contracts)
+  "f": 921645788,        // First trade ID
+  "l": 921645791,        // Last trade ID
+  "T": 1681877152123,    // Trade time
+  "m": false             // Is buyer the maker? false = aggressive buy
+}
+```
+
+**What to Calculate & Store:**
+
+```python
+EVERY trade:
+{
+    'timestamp': T,
+    'price': p,
+    'size': q,
+    'value_usd': p * q,
+    'trade_count': l - f + 1,  # How many individual trades
+
+    # Direction Analysis
+    'side': 'buy' if not m else 'sell',  # Aggressor side
+    'is_aggressive': not m,
+
+    # Size Classification
+    'size_category': classify_size(value_usd),
+    # 'micro': < $1k
+    # 'small': $1k - $10k
+    # 'medium': $10k - $50k
+    # 'large': $50k - $100k
+    # 'whale': > $100k
+    # 'mega_whale': > $500k
+
+    # Price Impact
+    'price_change': price - previous_price,
+    'price_change_bps': (price_change / previous_price) * 10000,
+
+    # Clustering Detection
+    'time_since_last': T - previous_trade_time,
+    'is_cluster': time_since_last < 100,  # Within 100ms
+
+    # Unusual Activity
+    'is_unusual_size': size > recent_avg_size * 3,
+    'is_block_trade': trade_count == 1 and value_usd > 100000
+}
+
+# Aggregated Metrics (Every Minute)
+{
+    'buy_volume': sum(buy_trades),
+    'sell_volume': sum(sell_trades),
+    'buy_count': count(buy_trades),
+    'sell_count': count(sell_trades),
+    'avg_trade_size': total_volume / trade_count,
+    'whale_trade_count': count(trades > $100k),
+    'buy_sell_ratio': buy_volume / sell_volume,
+    'vwap': sum(price * volume) / sum(volume),
+    'trade_intensity': trades_per_second
+}
+```
+
+---
+
+### **3. LIQUIDATIONS**
+
+**WebSocket:** `wss://fstream.binance.com/ws/btcusdt@forceOrder`
+
+**Raw Data Structure:**
+
+```javascript
+{
+  "e": "forceOrder",
+  "E": 1681877152136,
   "o": {
-    "s": "BTCUSDT",        // Symbol
-    "S": "SELL",           // Side (SELL = long liquidation)
-    "o": "LIMIT",          // Order Type
-    "f": "IOC",            // Time in Force
-    "q": "125.5",          // Quantity
-    "p": "43000.00",       // Price
-    "ap": "42999.50",      // Average Price
-    "X": "FILLED",         // Order Status
-    "l": "125.5",          // Last Filled Quantity
-    "z": "125.5",          // Cumulative Filled Quantity
-    "T": 1672515782136     // Transaction Time
+    "s": "BTCUSDT",      // Symbol
+    "S": "BUY",          // BUY = short liquidation, SELL = long liquidation
+    "o": "LIMIT",
+    "f": "IOC",
+    "q": "125.532",      // Quantity liquidated
+    "p": "43000.00",     // Price
+    "ap": "42999.50",    // Average price
+    "X": "FILLED",
+    "l": "125.532",      // Last filled quantity
+    "z": "125.532",      // Cumulative filled
+    "T": 1681877152123   // Trade time
   }
 }
 ```
 
-**What to Store:**
+**What to Calculate & Store:**
 
 ```python
-For EACH liquidation:
-- timestamp
-- symbol
-- side (SELL = long liquidation, BUY = short liquidation)
-- quantity
-- price
-- value_usd
-- average_price (ap)
+EVERY liquidation:
+{
+    'timestamp': T,
+    'side': S,  # BUY = shorts liquidated, SELL = longs liquidated
+    'size': q,
+    'price': p,
+    'avg_price': ap,
+    'value_usd': ap * q,
 
-Calculated:
-- size_category ('small', 'medium', 'large', 'mega')
-- is_cascade_participant (if multiple liquidations within 10 seconds)
-- price_distance_from_mark (how far from mark price)
+    # Classification
+    'liquidation_type': 'long' if S == 'SELL' else 'short',
+    'size_category': get_liq_category(value_usd),
+    # 'small': < $10k
+    # 'medium': $10k - $100k
+    # 'large': $100k - $1M
+    # 'mega': > $1M
 
-Aggregated (rolling windows):
-- liquidations_1m (count in last minute)
-- liquidation_volume_1m
-- long_liquidation_ratio
-- cascade_detected (>5 liquidations in 10 seconds)
+    # Cascade Detection
+    'time_since_last_liq': T - previous_liq_time,
+    'is_cascade_participant': time_since_last_liq < 10000,  # 10 seconds
+
+    # Market Context
+    'price_distance_from_last': abs(p - last_trade_price),
+    'caused_by': 'wick' if price_distance > threshold else 'trend'
+}
+
+# Cascade Metrics (Rolling Window)
+{
+    'liquidations_1m': count_in_last_minute,
+    'liquidation_volume_1m': sum_in_last_minute,
+    'long_short_ratio': long_liqs / short_liqs,
+    'cascade_intensity': liqs_per_second if > 0.5,
+    'largest_liquidation': max_in_window
+}
 ```
-
-**Why This Matters:**
-
-- **Cascade prediction**: Large liquidations trigger more liquidations
-- **Direction bias**: More long liquidations = potential bottom
-- **Whale hunting**: Whales often trigger liquidations intentionally
 
 ---
 
-## **📊 4. OPEN INTEREST & FUNDING (Critical for Futures)**
+## **🟡 TIER 2: IMPORTANT DATA (Add Within Days)**
 
-### **REST API: `/fapi/v1/openInterest` (Every 30 seconds)**
+### **4. OPEN INTEREST**
 
-**What to Collect:**
+**REST API:** `GET /fapi/v1/openInterest`
+**Frequency:** Every 30 seconds
+
+**Response:**
 
 ```javascript
 {
-  "openInterest": "125000.000",  // Total open interest in contracts
   "symbol": "BTCUSDT",
-  "time": 1672515782136
+  "openInterest": "125678.532",  // Total contracts
+  "time": 1681877152136
 }
 ```
 
-### **REST API: `/fapi/v1/fundingRate` (Every 5 minutes)**
+**What to Calculate & Store:**
 
-**What to Collect:**
+```python
+{
+    'timestamp': time,
+    'open_interest': openInterest,
+    'open_interest_usd': openInterest * current_price,
+
+    # Changes
+    'oi_change_1m': current - oi_1m_ago,
+    'oi_change_5m': current - oi_5m_ago,
+    'oi_change_1h': current - oi_1h_ago,
+
+    # Percentage Changes
+    'oi_pct_change_1m': (change_1m / oi_1m_ago) * 100,
+    'oi_pct_change_5m': (change_5m / oi_5m_ago) * 100,
+
+    # Signals
+    'rapid_increase': oi_pct_change_5m > 5,
+    'rapid_decrease': oi_pct_change_5m < -5,
+    'new_high': oi > max_24h,
+    'capitulation': oi < min_24h
+}
+```
+
+---
+
+### **5. FUNDING RATE**
+
+**REST API:** `GET /fapi/v1/fundingRate`
+**Frequency:** Every 5 minutes (or at funding time)
+
+**Response:**
 
 ```javascript
 {
   "symbol": "BTCUSDT",
-  "fundingRate": "0.0001000",    // Current funding rate
-  "fundingTime": 1672516800000,   // Next funding time
-  "time": 1672515782136
+  "fundingRate": "0.0001",      // 0.01%
+  "fundingTime": 1681920000000,  // Next funding time
+  "time": 1681877152136
 }
 ```
 
-**What to Store:**
+**What to Calculate & Store:**
 
 ```python
-Open Interest:
-- timestamp
-- open_interest_contracts
-- open_interest_usd (contracts × price)
-- change_1m, change_5m, change_1h
-- percent_change_5m
-- rapid_increase (change > 5% in 5 minutes)
-
-Funding Rate:
-- timestamp
-- funding_rate
-- funding_rate_annual (rate × 3 × 365)
-- time_until_funding
-- is_extreme (|rate| > 0.1%)
-- sentiment ('bullish' if > 0.05%, 'bearish' if < -0.05%)
-```
-
-**Why This Matters:**
-
-- **OI spikes**: New money entering = big move coming
-- **OI drops**: Positions closing = volatility decreasing
-- **Extreme funding**: Squeeze setups (high funding = short squeeze potential)
-
----
-
-## **📉 5. KLINE/CANDLESTICK DATA**
-
-### **WebSocket Stream: `kline_1m`, `kline_5m`**
-
-**What to Collect:**
-
-```javascript
 {
-  "e": "kline",
-  "E": 1672515782136,
-  "s": "BTCUSDT",
-  "k": {
-    "t": 1672515720000,    // Kline start time
-    "T": 1672515779999,    // Kline close time
-    "s": "BTCUSDT",
-    "i": "1m",              // Interval
-    "f": 100,               // First trade ID
-    "L": 200,               // Last trade ID
-    "o": "43250.00",        // Open
-    "c": "43255.00",        // Close
-    "h": "43260.00",        // High
-    "l": "43245.00",        // Low
-    "v": "1250.5",          // Volume
-    "n": 100,               // Number of trades
-    "x": false,             // Is this kline closed?
-    "q": "54062500.00",     // Quote asset volume (in USDT)
-    "V": "750.5",           // Taker buy base asset volume
-    "Q": "32437500.00"      // Taker buy quote asset volume
-  }
+    'timestamp': time,
+    'funding_rate': fundingRate,
+    'funding_rate_pct': fundingRate * 100,
+    'funding_rate_annual': fundingRate * 3 * 365 * 100,  # APR
+    'next_funding_time': fundingTime,
+    'minutes_until_funding': (fundingTime - time) / 60000,
+
+    # Market Sentiment
+    'sentiment': get_sentiment(fundingRate),
+    # 'extremely_bullish': > 0.1%
+    # 'bullish': 0.05% to 0.1%
+    # 'neutral': -0.05% to 0.05%
+    # 'bearish': -0.1% to -0.05%
+    # 'extremely_bearish': < -0.1%
+
+    # Squeeze Potential
+    'long_squeeze_risk': fundingRate > 0.1,
+    'short_squeeze_risk': fundingRate < -0.1,
+
+    # Historical Context
+    'percentile_7d': get_percentile(fundingRate, last_7_days),
+    'is_extreme': percentile_7d > 95 or percentile_7d < 5
 }
 ```
 
-**What to Store:**
-
-```python
-- All OHLCV data
-- volume (v)
-- quote_volume (q) - USDT volume
-- trade_count (n)
-- taker_buy_ratio (V / v) - buying pressure
-- average_trade_size (v / n)
-- is_high_volume (volume > 2× average)
-- price_range (high - low)
-- body_size (|close - open|)
-- wick_ratio (upper wick vs lower wick)
-```
-
-**Why This Matters:**
-
-- **Volume spikes**: Whale activity
-- **Taker buy ratio**: Shows aggression direction
-- **Trade count**: High count = retail, Low count with high volume = whales
-
 ---
 
-## **🔄 6. 24HR TICKER STATISTICS**
+### **6. MARK PRICE**
 
-### **WebSocket Stream: `ticker` (Every second)**
+**WebSocket:** `wss://fstream.binance.com/ws/btcusdt@markPrice@1s`
 
-**What to Collect:**
-
-```javascript
-{
-  "e": "24hrTicker",
-  "E": 1672515782136,
-  "s": "BTCUSDT",
-  "p": "250.00",           // Price change
-  "P": "0.58",             // Price change percent
-  "w": "43251.25",         // Weighted average price
-  "c": "43255.00",         // Last price
-  "Q": "10.5",             // Last quantity
-  "o": "43005.00",         // Open price
-  "h": "43500.00",         // High price
-  "l": "42900.00",         // Low price
-  "v": "250000.00",        // Total traded base asset volume
-  "q": "10806250000.00",   // Total traded quote asset volume
-  "O": 1672429382136,      // Statistics open time
-  "C": 1672515782136,      // Statistics close time
-  "F": 28385858,           // First trade ID
-  "L": 28395858,           // Last trade Id
-  "n": 10000               // Total number of trades
-}
-```
-
-**What to Store:**
-
-```python
-- price_change_24h (p)
-- percent_change_24h (P)
-- volume_24h (v)
-- quote_volume_24h (q)
-- high_24h, low_24h
-- trade_count_24h (n)
-- average_trade_size_24h
-- current_price_position ((current - low) / (high - low))
-```
-
-**Why This Matters:**
-
-- **Volume comparison**: Current vs 24h average shows unusual activity
-- **Price position**: Near highs/lows indicates potential reversals
-- **Trade frequency**: Sudden changes indicate institutional activity
-
----
-
-## **⚡ 7. REAL-TIME BOOK TICKER**
-
-### **WebSocket Stream: `bookTicker`**
-
-**What to Collect:**
-
-```javascript
-{
-  "e": "bookTicker",
-  "u": 400900217,          // order book updateId
-  "E": 1672515782136,      // Event time
-  "T": 1672515782136,      // Transaction time
-  "s": "BTCUSDT",
-  "b": "43250.00",         // Best bid price
-  "B": "125.5",            // Best bid qty
-  "a": "43250.50",         // Best ask price
-  "A": "98.3"              // Best ask qty
-}
-```
-
-**What to Store:**
-
-```python
-- All fields as-is
-- spread (a - b)
-- spread_percentage
-- bid_ask_size_ratio (B / A)
-- micro_imbalance
-```
-
-**Why This Matters:**
-
-- **Fastest updates**: First signal of whale orders
-- **Spread changes**: Indicates changing volatility
-- **Size imbalance**: Shows immediate pressure
-
----
-
-## **🎯 8. MARK PRICE (Futures Specific)**
-
-### **WebSocket Stream: `markPrice@1s`**
-
-**What to Collect:**
+**Raw Data:**
 
 ```javascript
 {
   "e": "markPriceUpdate",
-  "E": 1672515782136,
+  "E": 1681877152136,
   "s": "BTCUSDT",
-  "p": "43250.500",        // Mark price
-  "i": "43250.250",        // Index price
-  "P": "43260.750",        // Estimated Settle Price
-  "r": "0.0001",           // Funding rate
-  "T": 1672516800000       // Next funding time
+  "p": "43250.52341234",    // Mark price
+  "i": "43249.87654321",    // Index price
+  "P": "43251.12345678",    // Estimated settle price
+  "r": "0.0001",            // Funding rate
+  "T": 1681920000000        // Next funding time
 }
 ```
 
-**What to Store:**
+**What to Calculate & Store:**
 
 ```python
-- mark_price (p)
-- index_price (i)
-- mark_index_spread (p - i)
-- funding_rate (r)
-- time_to_funding
-- premium/discount percentage
-```
+{
+    'timestamp': E,
+    'mark_price': p,
+    'index_price': i,
+    'settle_price': P,
 
-**Why This Matters:**
+    # Spreads
+    'mark_index_spread': p - i,
+    'mark_index_spread_bps': ((p - i) / i) * 10000,
+    'mark_last_spread': p - last_trade_price,
 
-- **Premium/Discount**: Shows futures sentiment vs spot
-- **Liquidation calculations**: Mark price determines liquidations
-- **Arbitrage opportunities**: Large spreads = whale games
+    # Premium/Discount
+    'futures_premium': p > i,
+    'premium_amount': abs(p - i),
+    'premium_pct': ((p - i) / i) * 100,
 
----
-
-## **📊 DATA COLLECTION PRIORITIES**
-
-### **Tier 1 (MUST HAVE):**
-
-1. **Order Book Depth** (`depth20@100ms`) - See whale orders
-2. **Aggregated Trades** (`aggTrade`) - Detect accumulation
-3. **Liquidations** (`forceOrder`) - Profit from cascades
-
-### **Tier 2 (IMPORTANT):**
-
-4. **Open Interest** (REST API every 30s) - Gauge participation
-5. **Funding Rate** (REST API every 5m) - Sentiment indicator
-6. **Klines 1m/5m** - Context and volume analysis
-
-### **Tier 3 (NICE TO HAVE):**
-
-7. **Book Ticker** - Micro structure
-8. **24hr Ticker** - Relative metrics
-9. **Mark Price** - Futures specific dynamics
-
----
-
-## **⚠️ CRITICAL COLLECTION RULES**
-
-### **Data Integrity:**
-
-```python
-ALWAYS track:
-- Update IDs (ensure no gaps)
-- Server timestamps (E) AND local timestamps
-- Message sequence numbers
-- Connection drops and reconnections
-```
-
-### **Storage Frequency:**
-
-```python
-Order Book:
-- Store EVERY update if whale present
-- Store every 10th update if no whale (for context)
-
-Trades:
-- Store ALL trades > $10,000
-- Aggregate small trades per minute
-
-Liquidations:
-- Store EVERY liquidation (they're rare and valuable)
-```
-
-### **Cross-Validation:**
-
-```python
-Always compare:
-- Order book best bid/ask vs trade prices
-- Mark price vs index price vs last price
-- Your local timestamp vs server timestamp (detect lag)
+    # Liquidation Levels (Common Leverages)
+    'liq_price_long_10x': p * 0.91,   # 10x leverage
+    'liq_price_long_25x': p * 0.96,   # 25x leverage
+    'liq_price_long_50x': p * 0.98,   # 50x leverage
+    'liq_price_long_100x': p * 0.99,  # 100x leverage
+    'liq_price_short_10x': p * 1.09,
+    'liq_price_short_25x': p * 1.04,
+    'liq_price_short_50x': p * 1.02,
+    'liq_price_short_100x': p * 1.01
+}
 ```
 
 ---
 
-## **💡 WHY EACH DATA TYPE MATTERS**
+## **🟢 TIER 3: VALUABLE DATA (Week 2)**
 
-**Order Book** → Shows INTENTION (whales placing orders)
-**Trades** → Shows EXECUTION (whales actually buying/selling)
-**Liquidations** → Shows PAIN (forced selling/buying)
-**Open Interest** → Shows PARTICIPATION (money flowing in/out)
-**Funding** → Shows SENTIMENT (bullish/bearish bias)
-**Volume** → Shows INTENSITY (how serious the move is)
+### **7. LONG/SHORT RATIO**
+
+**REST API:** `GET /futures/data/globalLongShortAccountRatio`
+**Frequency:** Every 15 minutes
+
+```python
+{
+    'long_short_ratio': longShortRatio,
+    'long_percentage': (longShortRatio / (1 + longShortRatio)) * 100,
+    'short_percentage': (1 / (1 + longShortRatio)) * 100,
+    'sentiment': 'bullish' if longShortRatio > 1.2 else 'bearish' if < 0.8
+}
+```
+
+### **8. TOP TRADER POSITIONS**
+
+**REST API:** `GET /futures/data/topLongShortPositionRatio`
+**Frequency:** Every 5 minutes
+
+```python
+{
+    'top_trader_long_ratio': topLongRatio,
+    'top_trader_sentiment': 'bullish' if > 1.5 else 'bearish',
+    'divergence': top_trader_ratio - retail_ratio,
+    'smart_money_signal': 'follow' if divergence > threshold
+}
+```
+
+### **9. KLINES (1m and 5m)**
+
+**WebSocket:** `wss://fstream.binance.com/ws/btcusdt@kline_1m`
+
+```python
+{
+    'volume': v,
+    'quote_volume': q,  # USD volume
+    'trade_count': n,
+    'taker_buy_ratio': V / v,
+    'avg_trade_size': v / n,
+    'is_high_volume': v > average_volume * 2,
+    'body_size': abs(close - open),
+    'upper_wick': high - max(open, close),
+    'lower_wick': min(open, close) - low
+}
+```
 
 ---
 
-## **🎯 THE MINIMUM VIABLE DATA SET**
+## **⚡ DATA COLLECTION PRIORITIES BY DAY**
 
-If you can only collect 3 things:
+### **Day 1: Core Setup**
 
-1. **Order book depth** (see the whales)
-2. **Aggregated trades** (confirm whale action)
-3. **Liquidations** (ride the cascades)
+```python
+Connect to:
+1. btcusdt@depth20@100ms  # Order book
+2. btcusdt@aggTrade        # Trades
+3. btcusdt@forceOrder      # Liquidations
 
-This gives you 80% of the alpha with 20% of the complexity.
+Store: Everything for now (optimize later)
+```
 
-The key is collecting data at the RIGHT frequency and storing the RIGHT calculations, not just raw data. Every millisecond and every byte should have a purpose in your whale detection strategy.
+### **Day 2-3: Add Context**
+
+```python
+Add REST calls:
+4. Open Interest (every 30s)
+5. Funding Rate (every 5m)
+
+Add WebSocket:
+6. btcusdt@markPrice@1s
+```
+
+### **Day 4-7: Expand Coverage**
+
+```python
+Add more symbols:
+- ethusdt@depth20@100ms
+- bnbusdt@depth20@100ms
+- solusdt@depth20@100ms
+
+Same 6 data types for each
+```
+
+### **Week 2: Advanced Metrics**
+
+```python
+Add:
+- Long/Short ratios
+- Top trader positions
+- Klines for volume analysis
+- Multiple timeframes
+```
+
+---
+
+## **💾 STORAGE OPTIMIZATION**
+
+### **What to Store Forever:**
+
+- All liquidations (rare and valuable)
+- Whale orders > $500k
+- Unusual events (cascade, flash crash)
+- Daily aggregates
+
+### **What to Store Temporarily:**
+
+- Order book snapshots: 24 hours
+- Small trades: 1 hour aggregated
+- Mark prices: 1 hour
+- Failed whale signals: 7 days
+
+### **What to Keep in Memory Only:**
+
+- Last 100 order book updates
+- Last 1000 trades
+- Current whale positions
+- Active signals
+
+---
+
+## **🎯 SUCCESS METRICS**
+
+### **Week 1 Targets:**
+
+- Zero gaps in order book updates
+- Capture 100% of liquidations
+- Detect 50+ whale orders daily
+- Identify 3-5 whale patterns
+
+### **Data Quality Checks:**
+
+```python
+Every hour verify:
+- Update IDs sequential (no gaps)
+- Timestamps increasing
+- Best bid < Best ask
+- Mark price ≈ Last price (within 0.5%)
+- No duplicate trades
+```
+
+---
+
+## **⚠️ CRITICAL FUTURES-SPECIFIC RULES**
+
+1. **Contract Size**: BTCUSDT = 1 contract = 1 BTC worth
+2. **Funding Times**: Every 8 hours (00:00, 08:00, 16:00 UTC)
+3. **Liquidation Priority**: These are GOLD - never miss one
+4. **OI Changes**: Sudden drops = mass liquidations incoming
+5. **Mark vs Last**: Divergence > 0.5% = manipulation active
+
+---
+
+## **🚀 THE MINIMUM VIABLE FUTURES DATA**
+
+If you can only handle 3 things to start:
+
+```python
+MUST HAVE:
+1. Order Book (depth20@100ms) - See whales
+2. Liquidations (forceOrder) - Ride cascades
+3. Open Interest (REST/30s) - Gauge momentum
+
+This gives you 80% of alpha with 20% complexity
+```
+
+Everything else adds precision but these three are the CORE of futures whale tracking.
+
+Ready to start collecting futures data? Begin with these three streams and expand as your system proves profitable!
