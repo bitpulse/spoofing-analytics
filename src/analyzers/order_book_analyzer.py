@@ -2,15 +2,18 @@ import numpy as np
 from typing import List, Optional, Tuple
 from collections import deque
 from loguru import logger
+import asyncio
 
 from src.models.order_book import OrderBookSnapshot, PriceLevel, WhaleOrder
 from src.config import config
 
 
 class OrderBookAnalyzer:
-    def __init__(self, whale_threshold_usd: float = None, mega_whale_threshold_usd: float = None):
+    def __init__(self, whale_threshold_usd: float = None, mega_whale_threshold_usd: float = None, 
+                 telegram_manager=None):
         self.whale_threshold = whale_threshold_usd or config.whale_order_threshold
         self.mega_whale_threshold = mega_whale_threshold_usd or config.mega_whale_order_threshold
+        self.telegram_manager = telegram_manager
         
         # Rolling window for historical analysis
         self.snapshot_history = deque(maxlen=100)  # Last 10 seconds at 100ms updates
@@ -21,10 +24,10 @@ class OrderBookAnalyzer:
         
         # Detect whale orders
         snapshot.whale_bids = self._detect_whale_orders(
-            snapshot.bids, snapshot.bid_volume_total, 'bid'
+            snapshot.bids, snapshot.bid_volume_total, 'bid', snapshot.symbol
         )
         snapshot.whale_asks = self._detect_whale_orders(
-            snapshot.asks, snapshot.ask_volume_total, 'ask'
+            snapshot.asks, snapshot.ask_volume_total, 'ask', snapshot.symbol
         )
         
         # Calculate whale imbalance
@@ -56,7 +59,7 @@ class OrderBookAnalyzer:
         return snapshot
     
     def _detect_whale_orders(self, levels: List[PriceLevel], total_volume: float, 
-                            side: str) -> List[WhaleOrder]:
+                            side: str, symbol: str = "UNKNOWN") -> List[WhaleOrder]:
         """Detect whale orders in the order book"""
         whale_orders = []
         
@@ -85,6 +88,14 @@ class OrderBookAnalyzer:
                         f"${value_usd:,.0f} at {level.price} "
                         f"({percentage:.1f}% of book)"
                     )
+                    
+                    # Only alert for truly significant mega whales (>$3M and >30% of book)
+                    if self.telegram_manager and value_usd >= 3000000 and percentage > 30:
+                        self.telegram_manager.queue_whale_alert(
+                            whale_order, 
+                            symbol,
+                            "MEGA WHALE DETECTED"
+                        )
                     
         return whale_orders
     
@@ -160,12 +171,16 @@ class OrderBookAnalyzer:
         if snapshot.spread_bps > 10:
             logger.warning(f"Wide spread detected: {snapshot.spread_bps:.2f} bps")
             
-        # Extreme imbalance
-        if abs(snapshot.volume_imbalance) > 0.7:
+        # Extreme imbalance (only after warmup and truly extreme)
+        if len(self.snapshot_history) > 50 and abs(snapshot.volume_imbalance) > 0.85:
             side = "BID" if snapshot.volume_imbalance > 0 else "ASK"
             logger.warning(
                 f"Extreme {side} imbalance: {abs(snapshot.volume_imbalance):.1%}"
             )
+            
+            # Queue Telegram alert for extreme imbalance
+            if self.telegram_manager:
+                self.telegram_manager.queue_market_alert(snapshot, "EXTREME_IMBALANCE")
             
         # Multiple whale orders on same side
         if len(snapshot.whale_bids) >= 3:
@@ -174,6 +189,10 @@ class OrderBookAnalyzer:
                 f"Multiple whale BIDS detected: {len(snapshot.whale_bids)} orders, "
                 f"total ${total_whale_bid_value:,.0f}"
             )
+            
+            # Queue alert for whale cluster
+            if self.telegram_manager and (len(snapshot.whale_bids) + len(snapshot.whale_asks)) >= 5:
+                self.telegram_manager.queue_market_alert(snapshot, "MULTIPLE_WHALES")
             
         if len(snapshot.whale_asks) >= 3:
             total_whale_ask_value = sum(w.value_usd for w in snapshot.whale_asks)

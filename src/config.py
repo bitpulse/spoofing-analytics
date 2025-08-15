@@ -49,6 +49,11 @@ class Config(BaseSettings):
     # Monitoring
     metrics_port: int = Field(default=9090, env="METRICS_PORT")
     
+    # Telegram Alerts
+    telegram_bot_token: str = Field(default="", env="TELEGRAM_BOT_TOKEN")
+    telegram_channel_id: str = Field(default="", env="TELEGRAM_CHANNEL_ID")
+    telegram_alerts_enabled: bool = Field(default=False, env="TELEGRAM_ALERTS_ENABLED")
+    
     model_config = {
         "env_file": ".env"
     }

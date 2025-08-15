@@ -10,13 +10,15 @@ from src.collectors.websocket_manager import BinanceWebSocketManager
 from src.models.order_book import OrderBookSnapshot
 from src.analyzers.order_book_analyzer import OrderBookAnalyzer
 from src.storage.memory_store import MemoryStore
+from src.alerts.telegram_manager import TelegramAlertManager
 
 
 class WhaleAnalyticsSystem:
     def __init__(self):
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
-        self.analyzer = OrderBookAnalyzer()
+        self.telegram_manager = TelegramAlertManager() if config.telegram_alerts_enabled else None
+        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager)
         self.storage = MemoryStore()
         
         # Track previous update IDs for gap detection
@@ -83,6 +85,10 @@ class WhaleAnalyticsSystem:
             # Store in memory
             self.storage.store_snapshot(analyzed_snapshot)
             
+            # Check for whale changes (spoofing detection)
+            if self.telegram_manager:
+                self.telegram_manager.check_whale_changes(analyzed_snapshot)
+            
             # Log summary
             if analyzed_snapshot.whale_bids or analyzed_snapshot.whale_asks:
                 logger.info(
@@ -98,6 +104,10 @@ class WhaleAnalyticsSystem:
         """Start the whale analytics system"""
         logger.info("Starting Whale Analytics System...")
         self.running = True
+        
+        # Send startup message to Telegram if enabled
+        if self.telegram_manager:
+            self.telegram_manager.send_startup_message()
         
         # Subscribe to order book streams for configured symbols
         for symbol in config.symbols_list:
@@ -125,6 +135,11 @@ class WhaleAnalyticsSystem:
                 # Periodic tasks
                 if loop_count % 6 == 0:  # Every minute
                     self._print_stats()
+                    
+                    # Send summary to Telegram
+                    if self.telegram_manager and loop_count % 180 == 0:  # Every 30 minutes
+                        stats = self.storage.get_stats()
+                        self.telegram_manager.send_summary(stats)
                     
                 if loop_count % 30 == 0:  # Every 5 minutes
                     # Check for spoofing
@@ -172,6 +187,10 @@ class WhaleAnalyticsSystem:
         
         # Stop WebSocket connections
         self.ws_manager.stop()
+        
+        # Stop Telegram manager
+        if self.telegram_manager:
+            self.telegram_manager.stop()
         
         # Final stats
         self._print_stats()
