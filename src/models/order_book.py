@@ -7,10 +7,14 @@ import time
 @dataclass
 class PriceLevel:
     price: float
-    size: float
+    size: float  # Size in base asset (BTC for BTCUSDT, ETH for ETHUSDT)
     
     @property
     def value_usd(self) -> float:
+        # For USDT-Margined futures on Binance:
+        # Size represents the quantity of the base asset
+        # E.g., for BTCUSDT: size=1 means 1 BTC
+        # USD value = price * size
         return self.price * self.size
 
 
