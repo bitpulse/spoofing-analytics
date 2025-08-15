@@ -106,6 +106,12 @@ class WhaleAnalyticsSystem:
         logger.info("Starting Whale Analytics System...")
         self.running = True
         
+        # Log thresholds for each symbol
+        logger.info("Configured whale thresholds:")
+        for symbol in config.symbols_list:
+            thresholds = config.get_whale_thresholds(symbol)
+            logger.info(f"  {symbol}: Whale=${thresholds['whale']:,.0f}, Mega=${thresholds['mega_whale']:,.0f}")
+        
         # Send startup message to Telegram if enabled
         if self.telegram_manager:
             self.telegram_manager.send_startup_message()

@@ -11,14 +11,28 @@ from src.config import config
 class OrderBookAnalyzer:
     def __init__(self, whale_threshold_usd: float = None, mega_whale_threshold_usd: float = None, 
                  telegram_manager=None):
-        self.whale_threshold = whale_threshold_usd or config.whale_order_threshold
-        self.mega_whale_threshold = mega_whale_threshold_usd or config.mega_whale_order_threshold
+        # Store default thresholds (can be overridden per symbol)
+        self.default_whale_threshold = whale_threshold_usd or config.whale_order_threshold
+        self.default_mega_whale_threshold = mega_whale_threshold_usd or config.mega_whale_order_threshold
         self.telegram_manager = telegram_manager
+        
+        # Cache for per-symbol thresholds
+        self.symbol_thresholds = {}
         
         # Rolling window for historical analysis
         self.snapshot_history = deque(maxlen=100)  # Last 10 seconds at 100ms updates
         self.whale_order_history = deque(maxlen=1000)
         
+    def _get_thresholds(self, symbol: str) -> tuple:
+        """Get whale thresholds for a specific symbol"""
+        if symbol not in self.symbol_thresholds:
+            thresholds = config.get_whale_thresholds(symbol)
+            self.symbol_thresholds[symbol] = (
+                thresholds["whale"],
+                thresholds["mega_whale"]
+            )
+        return self.symbol_thresholds[symbol]
+    
     def analyze_snapshot(self, snapshot: OrderBookSnapshot) -> OrderBookSnapshot:
         """Perform complete analysis on order book snapshot"""
         
@@ -63,10 +77,13 @@ class OrderBookAnalyzer:
         """Detect whale orders in the order book"""
         whale_orders = []
         
+        # Get thresholds for this specific symbol
+        whale_threshold, mega_whale_threshold = self._get_thresholds(symbol)
+        
         for i, level in enumerate(levels):
             value_usd = level.value_usd
             
-            if value_usd >= self.whale_threshold:
+            if value_usd >= whale_threshold:
                 percentage = (level.size / total_volume * 100) if total_volume > 0 else 0
                 
                 whale_order = WhaleOrder(
@@ -81,16 +98,19 @@ class OrderBookAnalyzer:
                 whale_orders.append(whale_order)
                 self.whale_order_history.append(whale_order)
                 
+                # Use per-symbol mega whale threshold for alerts
+                alert_threshold = mega_whale_threshold * 1.5  # Alert at 1.5x mega threshold
+                
                 # Only log truly significant mega whales
-                if value_usd >= 3000000 and percentage > 30:
+                if value_usd >= alert_threshold and percentage > 30:
                     logger.warning(
-                        f"🐋 SIGNIFICANT WHALE {side.upper()}: "
+                        f"🐋 SIGNIFICANT WHALE {side.upper()} on {symbol}: "
                         f"${value_usd:,.0f} at ${level.price:,.2f} "
                         f"({percentage:.1f}% of book)"
                     )
                     
-                    # Only alert for truly significant mega whales (>$3M and >30% of book)
-                    if self.telegram_manager and value_usd >= 3000000 and percentage > 30:
+                    # Alert for mega whales based on per-symbol thresholds
+                    if self.telegram_manager and value_usd >= alert_threshold and percentage > 30:
                         self.telegram_manager.queue_whale_alert(
                             whale_order, 
                             symbol,

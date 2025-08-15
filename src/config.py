@@ -1,7 +1,9 @@
-from typing import List
+from typing import List, Dict, Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
 from dotenv import load_dotenv
+import os
+from src.thresholds import get_thresholds
 
 load_dotenv()
 
@@ -54,15 +56,22 @@ class Config(BaseSettings):
     telegram_channel_id: str = Field(default="", env="TELEGRAM_CHANNEL_ID")
     telegram_alerts_enabled: bool = Field(default=False, env="TELEGRAM_ALERTS_ENABLED")
     
+    
     model_config = {
-        "env_file": ".env"
+        "env_file": ".env",
+        "extra": "ignore"  # Ignore extra fields from env
     }
         
+    
     @property
     def symbols_list(self) -> List[str]:
         if isinstance(self.symbols, str):
             return [s.strip() for s in self.symbols.split(",")]
         return self.symbols
+    
+    def get_whale_thresholds(self, symbol: str) -> Dict[str, float]:
+        """Get whale thresholds for a specific symbol from thresholds.py"""
+        return get_thresholds(symbol)
 
 
 config = Config()

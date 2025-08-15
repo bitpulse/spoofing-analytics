@@ -132,14 +132,27 @@ class TelegramAlertManager:
     
     def _format_whale_alert(self, whale: WhaleOrder, symbol: str, action: str) -> str:
         """Format whale alert message"""
-        emoji = "🐋" if whale.value_usd < config.mega_whale_order_threshold else "🔥🐋"
-        direction = "BUY" if whale.side == "bid" else "SELL"
+        # Get thresholds for this symbol
+        thresholds = config.get_whale_thresholds(symbol)
+        mega_threshold = thresholds["mega_whale"]
+        
+        emoji = "🐋" if whale.value_usd < mega_threshold else "🔥🐋"
+        
+        # Green for buy, red for sell
+        if whale.side == "bid":
+            direction = "BUY"
+            color_emoji = "🟢"
+            trend_emoji = "📈"
+        else:
+            direction = "SELL"
+            color_emoji = "🔴"
+            trend_emoji = "📉"
         
         message = (
             f"{emoji} **WHALE {action}** {emoji}\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"**{symbol}**\n"
-            f"Type: **{direction} WALL**\n"
+            f"Type: {color_emoji} **{direction} WALL**\n"
             f"Price: **${whale.price:,.2f}**\n"
             f"Size: **${whale.value_usd:,.0f}**\n"
             f"Book %: **{whale.percentage_of_book:.1f}%**\n"
@@ -148,16 +161,16 @@ class TelegramAlertManager:
         )
         
         # Add context
-        if whale.value_usd >= config.mega_whale_order_threshold:
+        if whale.value_usd >= mega_threshold:
             message += "⚡ MEGA WHALE ORDER ⚡\n"
         
         if whale.percentage_of_book > 50:
             message += "⚠️ Dominates order book!\n"
         
         if whale.side == "bid":
-            message += "📈 Potential support level\n"
+            message += f"{trend_emoji} Potential support level\n"
         else:
-            message += "📉 Potential resistance level\n"
+            message += f"{trend_emoji} Potential resistance level\n"
         
         return message
     
@@ -223,12 +236,24 @@ class TelegramAlertManager:
         if not self.enabled or not self.bot:
             return
         
+        # Build threshold info for each symbol
+        threshold_info = []
+        for symbol in config.symbols_list:
+            thresholds = config.get_whale_thresholds(symbol)
+            threshold_info.append(
+                f"  **{symbol}**: 🐋${thresholds['whale']/1000000:.1f}M / 🔥${thresholds['mega_whale']/1000000:.1f}M"
+            )
+        
         message = (
             "🚀 **Whale Analytics System Started** 🚀\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"Symbols: {', '.join(config.symbols_list)}\n"
-            f"Whale Threshold: ${config.whale_order_threshold:,.0f}\n"
-            f"Mega Whale: ${config.mega_whale_order_threshold:,.0f}\n"
+            f"**Monitoring Pairs:**\n"
+            f"{chr(10).join(threshold_info)}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"Alert Thresholds:\n"
+            f"  🟢 Buy / 🔴 Sell indicators\n"
+            f"  📊 >30% of order book\n"
+            f"  ⏱️ Spoofing: $5M+ lasting 5-60s\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"Monitoring active..."
         )
@@ -362,10 +387,18 @@ class TelegramAlertManager:
             self.stats['alerts_throttled'] += 1
             return
             
+        # Color coding for spoofing
+        if whale.side == 'bid':
+            color_emoji = "🟢"
+            direction = "BUY"
+        else:
+            color_emoji = "🔴"
+            direction = "SELL"
+            
         message = (
             f"🚨 **MEGA SPOOFING DETECTED** 🚨\n"
             f"Symbol: {symbol}\n"
-            f"Side: {'BUY' if whale.side == 'bid' else 'SELL'}\n"
+            f"Side: {color_emoji} **{direction}**\n"
             f"Price: ${whale.price:,.2f}\n"
             f"Size: ${whale.value_usd:,.0f}\n"
             f"Book %: {whale.percentage_of_book:.1f}%\n"
