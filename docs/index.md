@@ -13,8 +13,9 @@
 
 ## Data Analysis
 
+- [Data Flow Explanation](data_flow_explanation.md) - How whales vs spoofing data is separated
 - [Data Fields Explained](data_fields_explained.md) - CSV field descriptions
-- [Analysis Tool Guide](analyze_data_tool.md) - Using analyze_data.py
+- [Analysis Tool Guide](analyze_data_tool.md) - Using analyze_data.py with clear metrics
 - [Data Volume Analysis](data_volume_analysis.md) - Storage and performance metrics
 
 ## Operations
@@ -54,18 +55,26 @@ Large orders that can influence market price, typically:
 - ETHUSDT: >$500K
 - Alt coins: >$30-200K
 
-### Spoofing
-Fake orders placed to manipulate price perception:
-- Appear for 5-60 seconds
-- Disappear before execution
-- Create false support/resistance
+### How We Detect Spoofing (Evidence-Based)
+We track EVERY whale order with a unique ID and monitor its lifecycle:
+
+1. **Order Appears**: Logged to `data/whales/` immediately
+2. **Order Tracked**: Monitored every 100ms for changes
+3. **Order Disappears**: System checks what happened
+4. **Spoof Confirmed** if ALL conditions met:
+   - Disappeared within 5-60 seconds
+   - Was NOT filled (no trades executed)
+   - Order was simply canceled/removed
+   - Then logged to `data/spoofing/` as proven fake
 
 ### Manipulation Score
-0-100 scale indicating market manipulation level:
-- 0-20: Clean market
-- 20-50: Moderate manipulation
-- 50-80: High manipulation
-- 80-100: Extreme manipulation
+**Formula**: `(confirmed_spoofs / total_whales) × 100`
+
+Based on PROVEN fake orders, not speculation:
+- **0-20%**: Clean market (few spoofs)
+- **20-50%**: Moderate manipulation (1 in 3-5 orders fake)
+- **50-80%**: High manipulation (majority are fake)
+- **80-100%**: Extreme manipulation (avoid trading)
 
 ## Usage Examples
 
@@ -91,10 +100,24 @@ python analyze_data.py BTCUSDT 2025-08-15
 tail -f logs/whale_analytics.log
 ```
 
-### Data Locations
-- Real-time data: `data/whales/SYMBOL/`
-- Spoofing events: `data/spoofing/SYMBOL/`
-- Market snapshots: `data/snapshots/SYMBOL/`
+### Data Locations & What They Mean
+
+#### `data/whales/SYMBOL/` - All Large Orders (Real-Time)
+- **When Logged**: Immediately upon detection (milliseconds)
+- **Contains**: ALL orders above whale threshold (both real & fake)
+- **Purpose**: Complete historical record of large orders
+
+#### `data/spoofing/SYMBOL/` - Confirmed Fake Orders
+- **When Logged**: After order disappears (5-60 seconds later)
+- **Contains**: ONLY proven spoofs that disappeared without fills
+- **Purpose**: Evidence of market manipulation
+
+#### `data/snapshots/SYMBOL/` - Market State
+- **When Logged**: Every ~1 minute
+- **Contains**: Overall market metrics and whale counts
+- **Purpose**: Market context and trends
+
+**Key Point**: The same order can appear in both whales/ (when detected) and spoofing/ (if proven fake), linked by unique whale_id
 
 ## Performance Metrics
 
