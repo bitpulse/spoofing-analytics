@@ -6,11 +6,13 @@ import asyncio
 
 from src.models.order_book import OrderBookSnapshot, PriceLevel, WhaleOrder
 from src.config import config
+from src.tracking.whale_tracker import WhaleTracker
+from src.storage.csv_logger import CSVLogger
 
 
 class OrderBookAnalyzer:
     def __init__(self, whale_threshold_usd: float = None, mega_whale_threshold_usd: float = None, 
-                 telegram_manager=None):
+                 telegram_manager=None, enable_csv_logging: bool = True):
         # Store default thresholds (can be overridden per symbol)
         self.default_whale_threshold = whale_threshold_usd or config.whale_order_threshold
         self.default_mega_whale_threshold = mega_whale_threshold_usd or config.mega_whale_order_threshold
@@ -22,6 +24,13 @@ class OrderBookAnalyzer:
         # Rolling window for historical analysis
         self.snapshot_history = deque(maxlen=100)  # Last 10 seconds at 100ms updates
         self.whale_order_history = deque(maxlen=1000)
+        
+        # Initialize whale tracking
+        self.whale_tracker = WhaleTracker()
+        
+        # Initialize CSV logging
+        self.csv_logger = CSVLogger() if enable_csv_logging else None
+        self.snapshot_counter = 0  # Log snapshots periodically
         
     def _get_thresholds(self, symbol: str) -> tuple:
         """Get whale thresholds for a specific symbol"""
@@ -36,13 +45,31 @@ class OrderBookAnalyzer:
     def analyze_snapshot(self, snapshot: OrderBookSnapshot) -> OrderBookSnapshot:
         """Perform complete analysis on order book snapshot"""
         
-        # Detect whale orders
+        # Detect whale orders with tracking
         snapshot.whale_bids = self._detect_whale_orders(
-            snapshot.bids, snapshot.bid_volume_total, 'bid', snapshot.symbol
+            snapshot.bids, snapshot.bid_volume_total, 'bid', 
+            snapshot.symbol, snapshot.mid_price, snapshot
         )
         snapshot.whale_asks = self._detect_whale_orders(
-            snapshot.asks, snapshot.ask_volume_total, 'ask', snapshot.symbol
+            snapshot.asks, snapshot.ask_volume_total, 'ask', 
+            snapshot.symbol, snapshot.mid_price, snapshot
         )
+        
+        # Process whale tracking (detect disappeared whales)
+        current_whale_ids = set()
+        for whale in snapshot.whale_bids + snapshot.whale_asks:
+            if hasattr(whale, 'whale_id'):
+                current_whale_ids.add(whale.whale_id)
+        
+        # Check for disappeared whales (potential spoofing)
+        self.whale_tracker.process_snapshot_whales(snapshot.symbol, current_whale_ids)
+        
+        # Check and log spoofing events
+        if self.csv_logger:
+            for whale_id in list(self.whale_tracker.recent_whales.get(snapshot.symbol, [])):
+                whale_summary = self.whale_tracker.get_whale_summary(whale_id.whale_id, snapshot.symbol)
+                if whale_summary and whale_summary.get('likely_spoof'):
+                    self.csv_logger.log_spoofing_from_dict(whale_summary)
         
         # Calculate whale imbalance
         snapshot.whale_imbalance = len(snapshot.whale_bids) - len(snapshot.whale_asks)
@@ -67,15 +94,22 @@ class OrderBookAnalyzer:
         # Store in history
         self.snapshot_history.append(snapshot)
         
+        # Log market snapshot periodically (every 600 snapshots = ~1 minute at 100ms)
+        self.snapshot_counter += 1
+        if self.csv_logger and self.snapshot_counter % 600 == 0:
+            self.csv_logger.log_snapshot_from_dict(snapshot)
+        
         # Log significant events
         self._log_significant_events(snapshot)
         
         return snapshot
     
     def _detect_whale_orders(self, levels: List[PriceLevel], total_volume: float, 
-                            side: str, symbol: str = "UNKNOWN") -> List[WhaleOrder]:
-        """Detect whale orders in the order book"""
+                            side: str, symbol: str = "UNKNOWN", mid_price: float = 0,
+                            snapshot: OrderBookSnapshot = None) -> List[WhaleOrder]:
+        """Detect whale orders in the order book with tracking"""
         whale_orders = []
+        current_whale_ids = set()
         
         # Get thresholds for this specific symbol
         whale_threshold, mega_whale_threshold = self._get_thresholds(symbol)
@@ -86,6 +120,20 @@ class OrderBookAnalyzer:
             if value_usd >= whale_threshold:
                 percentage = (level.size / total_volume * 100) if total_volume > 0 else 0
                 
+                # Track this whale with unique ID
+                whale_id = self.whale_tracker.identify_whale(
+                    symbol=symbol,
+                    side=side,
+                    price=level.price,
+                    size=level.size,
+                    value_usd=value_usd,
+                    percentage_of_book=percentage,
+                    level=i,
+                    mid_price=mid_price
+                )
+                
+                current_whale_ids.add(whale_id)
+                
                 whale_order = WhaleOrder(
                     price=level.price,
                     size=level.size,
@@ -95,8 +143,37 @@ class OrderBookAnalyzer:
                     side=side
                 )
                 
+                # Add whale_id to the order (extend WhaleOrder if needed)
+                whale_order.whale_id = whale_id
+                
                 whale_orders.append(whale_order)
                 self.whale_order_history.append(whale_order)
+                
+                # Log whale to CSV with actual order data
+                if self.csv_logger:
+                    whale_summary = self.whale_tracker.get_whale_summary(whale_id, symbol)
+                    if whale_summary:
+                        # Override with actual current values (not the 0s from new whales)
+                        whale_summary['price'] = level.price
+                        whale_summary['size'] = level.size
+                        whale_summary['value_usd'] = value_usd
+                        whale_summary['percentage_of_book'] = percentage
+                        whale_summary['level'] = i
+                        whale_summary['symbol'] = symbol
+                        whale_summary['side'] = side
+                        whale_summary['whale_id'] = whale_id
+                        
+                        # Add snapshot context
+                        snapshot_context = {
+                            'mid_price': mid_price,
+                            'spread_bps': snapshot.spread_bps if snapshot else 0,
+                            'total_bid_whales': len(snapshot.whale_bids) if snapshot else 0,
+                            'total_ask_whales': len(snapshot.whale_asks) if snapshot else 0,
+                            'volume_imbalance': snapshot.volume_imbalance if snapshot else 0,
+                            'bid_depth_1pct': snapshot.depth_1_percent if snapshot and hasattr(snapshot, 'depth_1_percent') else 0,
+                            'ask_depth_1pct': 0  # Could calculate separately if needed
+                        }
+                        self.csv_logger.log_whale_from_dict(whale_summary, snapshot_context)
                 
                 # Use per-symbol mega whale threshold for alerts
                 alert_threshold = mega_whale_threshold * 1.5  # Alert at 1.5x mega threshold

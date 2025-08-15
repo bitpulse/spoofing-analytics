@@ -52,16 +52,16 @@ PAIR_THRESHOLDS = {
         "mega_whale": 1000000  # $1M
     },
     "ARBUSDT": {
-        "whale": 300000,  # $300K - Layer 2 token, medium manipulation risk
-        "mega_whale": 1500000  # $1.5M
+        "whale": 30000,  # $300K - Layer 2 token, medium manipulation risk
+        "mega_whale": 150000  # $1.5M
     },
     "INJUSDT": {
-        "whale": 250000,  # $250K - DeFi token, volatile
-        "mega_whale": 1200000  # $1.2M
+        "whale": 25000,  # $250K - DeFi token, volatile
+        "mega_whale": 120000  # $1.2M
     },
     "FETUSDT": {
-        "whale": 200000,  # $200K - AI token, highly speculative
-        "mega_whale": 1000000  # $1M
+        "whale": 20000,  # $200K - AI token, highly speculative
+        "mega_whale": 100000  # $1M
     }
 }
 

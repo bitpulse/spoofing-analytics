@@ -27,6 +27,7 @@ class WhaleOrder:
     percentage_of_book: float
     side: str  # 'bid' or 'ask'
     timestamp: float = field(default_factory=time.time)
+    whale_id: str = ""  # Unique identifier for tracking
 
 
 @dataclass
