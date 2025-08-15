@@ -89,12 +89,13 @@ class WhaleAnalyticsSystem:
             if self.telegram_manager:
                 self.telegram_manager.check_whale_changes(analyzed_snapshot)
             
-            # Log summary
-            if analyzed_snapshot.whale_bids or analyzed_snapshot.whale_asks:
+            # Only log when significant whale orders detected (reduce spam)
+            if (analyzed_snapshot.whale_bids and any(w.value_usd > 3000000 for w in analyzed_snapshot.whale_bids)) or \
+               (analyzed_snapshot.whale_asks and any(w.value_usd > 3000000 for w in analyzed_snapshot.whale_asks)):
                 logger.info(
-                    f"{symbol} | Spread: {analyzed_snapshot.spread_bps:.2f}bps | "
-                    f"Imbalance: {analyzed_snapshot.volume_imbalance:.1%} | "
-                    f"Whales: {len(analyzed_snapshot.whale_bids)}B/{len(analyzed_snapshot.whale_asks)}A"
+                    f"{symbol} | Price: ${analyzed_snapshot.mid_price:,.2f} | "
+                    f"Whales: {len(analyzed_snapshot.whale_bids)}B/{len(analyzed_snapshot.whale_asks)}A | "
+                    f"Largest: ${max([w.value_usd for w in analyzed_snapshot.whale_bids + analyzed_snapshot.whale_asks]):,.0f}"
                 )
                 
         except Exception as e:

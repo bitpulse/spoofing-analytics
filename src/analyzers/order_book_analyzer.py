@@ -81,11 +81,11 @@ class OrderBookAnalyzer:
                 whale_orders.append(whale_order)
                 self.whale_order_history.append(whale_order)
                 
-                # Log mega whales
-                if value_usd >= self.mega_whale_threshold:
+                # Only log truly significant mega whales
+                if value_usd >= 3000000 and percentage > 30:
                     logger.warning(
-                        f"MEGA WHALE {side.upper()} detected: "
-                        f"${value_usd:,.0f} at {level.price} "
+                        f"🐋 SIGNIFICANT WHALE {side.upper()}: "
+                        f"${value_usd:,.0f} at ${level.price:,.2f} "
                         f"({percentage:.1f}% of book)"
                     )
                     
@@ -171,16 +171,9 @@ class OrderBookAnalyzer:
         if snapshot.spread_bps > 10:
             logger.warning(f"Wide spread detected: {snapshot.spread_bps:.2f} bps")
             
-        # Extreme imbalance (only after warmup and truly extreme)
-        if len(self.snapshot_history) > 50 and abs(snapshot.volume_imbalance) > 0.85:
-            side = "BID" if snapshot.volume_imbalance > 0 else "ASK"
-            logger.warning(
-                f"Extreme {side} imbalance: {abs(snapshot.volume_imbalance):.1%}"
-            )
-            
-            # Queue Telegram alert for extreme imbalance
-            if self.telegram_manager:
-                self.telegram_manager.queue_market_alert(snapshot, "EXTREME_IMBALANCE")
+        # Disable imbalance alerts - too frequent and not actionable
+        # Only keep for internal tracking, no logging or alerts
+        pass
             
         # Multiple whale orders on same side
         if len(snapshot.whale_bids) >= 3:
@@ -190,9 +183,8 @@ class OrderBookAnalyzer:
                 f"total ${total_whale_bid_value:,.0f}"
             )
             
-            # Queue alert for whale cluster
-            if self.telegram_manager and (len(snapshot.whale_bids) + len(snapshot.whale_asks)) >= 5:
-                self.telegram_manager.queue_market_alert(snapshot, "MULTIPLE_WHALES")
+            # Disabled - too frequent
+            pass
             
         if len(snapshot.whale_asks) >= 3:
             total_whale_ask_value = sum(w.value_usd for w in snapshot.whale_asks)

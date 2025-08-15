@@ -76,23 +76,47 @@ class TelegramAlertManager:
         """Check for new whales or removed whales (potential spoofing)"""
         symbol = snapshot.symbol
         current_whales = {}
+        current_time = time.time()
         
-        # Track current whale orders
+        # Track current whale orders with timestamps
         for whale in snapshot.whale_bids + snapshot.whale_asks:
             key = f"{whale.side}_{whale.price}_{whale.size}"
-            current_whales[key] = whale
+            current_whales[key] = {
+                'whale': whale,
+                'first_seen': current_time  # Will be updated below if already tracked
+            }
+        
+        # Initialize if first time seeing this symbol
+        if symbol not in self.active_whales:
+            self.active_whales[symbol] = {}
         
         # Check for removed whales (potential spoofing)
-        if symbol in self.active_whales:
-            for key, old_whale in self.active_whales[symbol].items():
-                if key not in current_whales:
-                    # Whale order disappeared - potential spoof
-                    time_active = time.time() - old_whale.timestamp
-                    if time_active < 60:  # Disappeared within 1 minute
-                        self.queue_spoofing_alert(old_whale, symbol, time_active)
+        for key, whale_data in list(self.active_whales[symbol].items()):
+            if key not in current_whales:
+                # Whale order disappeared - potential spoof
+                time_active = current_time - whale_data['first_seen']
+                whale_obj = whale_data['whale']
+                
+                # Only alert for MEGA spoofs:
+                # - $5M+ orders (truly significant)
+                # - Lasted 5-60 seconds (not HFT, not legitimate)
+                # - Represents >20% of their side of the book
+                if (5 < time_active < 60 and 
+                    whale_obj.value_usd >= 5000000 and 
+                    whale_obj.percentage_of_book > 20):
+                    self.queue_spoofing_alert(whale_obj, symbol, time_active)
         
-        # Update active whales
-        self.active_whales[symbol] = current_whales
+        # Update active whales, preserving first_seen timestamps
+        new_active = {}
+        for key, whale_info in current_whales.items():
+            if key in self.active_whales[symbol]:
+                # Preserve original first_seen time
+                new_active[key] = self.active_whales[symbol][key]
+            else:
+                # New whale, use current time
+                new_active[key] = whale_info
+        
+        self.active_whales[symbol] = new_active
     
     def queue_spoofing_alert(self, whale: WhaleOrder, symbol: str, time_active: float):
         """Queue alert for potential spoofing activity"""
@@ -328,14 +352,28 @@ class TelegramAlertManager:
     
     async def _process_spoofing_alert(self, whale: WhaleOrder, symbol: str, time_active: float):
         """Process a spoofing alert"""
+        # Additional check for significance (redundant but safe)
+        if whale.value_usd < 5000000:
+            return
+        
+        # Throttle spoofing alerts more aggressively
+        alert_key = f"spoofing_{symbol}_{whale.side}"
+        if self._is_throttled(alert_key, cooldown=600):  # 10 minute cooldown
+            self.stats['alerts_throttled'] += 1
+            return
+            
         message = (
-            f"🚨 **POTENTIAL SPOOFING DETECTED** 🚨\n"
+            f"🚨 **MEGA SPOOFING DETECTED** 🚨\n"
             f"Symbol: {symbol}\n"
             f"Side: {'BUY' if whale.side == 'bid' else 'SELL'}\n"
             f"Price: ${whale.price:,.2f}\n"
             f"Size: ${whale.value_usd:,.0f}\n"
+            f"Book %: {whale.percentage_of_book:.1f}%\n"
             f"Time Active: {time_active:.1f} seconds\n"
-            f"⚠️ Large order removed quickly - possible manipulation"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"⚠️ Massive order placed and removed\n"
+            f"💡 Likely price manipulation attempt"
         )
         
         await self._send_message(message, parse_mode='Markdown')
+        self.last_alert_time[alert_key] = time.time()
