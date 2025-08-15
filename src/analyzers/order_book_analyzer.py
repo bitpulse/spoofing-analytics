@@ -149,17 +149,29 @@ class OrderBookAnalyzer:
                 whale_orders.append(whale_order)
                 self.whale_order_history.append(whale_order)
                 
-                # Log whale to CSV
+                # Log whale to CSV with actual order data
                 if self.csv_logger:
                     whale_summary = self.whale_tracker.get_whale_summary(whale_id, symbol)
                     if whale_summary:
+                        # Override with actual current values (not the 0s from new whales)
+                        whale_summary['price'] = level.price
+                        whale_summary['size'] = level.size
+                        whale_summary['value_usd'] = value_usd
+                        whale_summary['percentage_of_book'] = percentage
+                        whale_summary['level'] = i
+                        whale_summary['symbol'] = symbol
+                        whale_summary['side'] = side
+                        whale_summary['whale_id'] = whale_id
+                        
                         # Add snapshot context
                         snapshot_context = {
                             'mid_price': mid_price,
                             'spread_bps': snapshot.spread_bps if snapshot else 0,
                             'total_bid_whales': len(snapshot.whale_bids) if snapshot else 0,
                             'total_ask_whales': len(snapshot.whale_asks) if snapshot else 0,
-                            'volume_imbalance': snapshot.volume_imbalance if snapshot else 0
+                            'volume_imbalance': snapshot.volume_imbalance if snapshot else 0,
+                            'bid_depth_1pct': snapshot.depth_1_percent if snapshot and hasattr(snapshot, 'depth_1_percent') else 0,
+                            'ask_depth_1pct': 0  # Could calculate separately if needed
                         }
                         self.csv_logger.log_whale_from_dict(whale_summary, snapshot_context)
                 

@@ -121,16 +121,26 @@ class CSVLogger:
             dir_path.mkdir(parents=True, exist_ok=True)
             
     def get_filename(self, data_type: str, symbol: str = None) -> Path:
-        """Generate filename for current date"""
+        """Generate filename for current date - organized by symbol"""
         today = date.today().strftime("%Y-%m-%d")
         
-        if data_type == "whales":
-            return self.base_dir / "whales" / f"whales_{today}.csv"
-        elif data_type == "spoofing":
-            return self.base_dir / "spoofing" / f"spoofing_{today}.csv"
+        if data_type == "whales" and symbol:
+            # Create per-symbol subdirectory
+            symbol_dir = self.base_dir / "whales" / symbol
+            symbol_dir.mkdir(parents=True, exist_ok=True)
+            return symbol_dir / f"{symbol}_whales_{today}.csv"
+        elif data_type == "spoofing" and symbol:
+            # Create per-symbol subdirectory
+            symbol_dir = self.base_dir / "spoofing" / symbol
+            symbol_dir.mkdir(parents=True, exist_ok=True)
+            return symbol_dir / f"{symbol}_spoofing_{today}.csv"
         elif data_type == "snapshots" and symbol:
-            return self.base_dir / "snapshots" / f"{symbol}_{today}.csv"
+            # Create per-symbol subdirectory
+            symbol_dir = self.base_dir / "snapshots" / symbol
+            symbol_dir.mkdir(parents=True, exist_ok=True)
+            return symbol_dir / f"{symbol}_snapshots_{today}.csv"
         else:
+            # Fallback for any other type
             return self.base_dir / f"{data_type}_{today}.csv"
             
     def log_whale(self, event: WhaleEvent):
@@ -242,17 +252,17 @@ class CSVLogger:
                 logger.error(f"Error processing write queue: {e}")
                 
     def _write_whale(self, event: WhaleEvent):
-        """Write whale event to CSV"""
-        filename = self.get_filename("whales")
+        """Write whale event to CSV - per symbol file"""
+        filename = self.get_filename("whales", event.symbol)
         self._write_csv_row(filename, asdict(event), WhaleEvent)
         
     def _write_spoofing(self, event: SpoofingEvent):
-        """Write spoofing event to CSV"""
-        filename = self.get_filename("spoofing")
+        """Write spoofing event to CSV - per symbol file"""
+        filename = self.get_filename("spoofing", event.symbol)
         self._write_csv_row(filename, asdict(event), SpoofingEvent)
         
     def _write_snapshot(self, event: MarketSnapshot):
-        """Write market snapshot to CSV"""
+        """Write market snapshot to CSV - per symbol file"""
         filename = self.get_filename("snapshots", event.symbol)
         self._write_csv_row(filename, asdict(event), MarketSnapshot)
         
@@ -315,32 +325,54 @@ class CSVLogger:
             logger.error(f"Failed to compress {filepath}: {e}")
             
     def get_today_stats(self) -> Dict:
-        """Get statistics for today's logging"""
+        """Get statistics for today's logging - per symbol"""
         today = date.today().strftime("%Y-%m-%d")
         
         stats = {
-            'whales_logged': 0,
-            'spoofs_logged': 0,
-            'snapshots_logged': 0,
-            'total_size_mb': 0
+            'total': {
+                'whales_logged': 0,
+                'spoofs_logged': 0,
+                'snapshots_logged': 0,
+                'total_size_mb': 0
+            },
+            'per_symbol': {}
         }
         
-        # Count rows in today's files
-        whale_file = self.get_filename("whales")
-        if whale_file.exists():
-            with open(whale_file, 'r') as f:
-                stats['whales_logged'] = sum(1 for line in f) - 1  # Minus header
-                
-        spoof_file = self.get_filename("spoofing")
-        if spoof_file.exists():
-            with open(spoof_file, 'r') as f:
-                stats['spoofs_logged'] = sum(1 for line in f) - 1
-                
-        # Calculate total size
-        for subdir in ["whales", "spoofing", "snapshots"]:
-            dir_path = self.base_dir / subdir
-            for csv_file in dir_path.glob(f"*_{today}.csv"):
-                stats['total_size_mb'] += csv_file.stat().st_size / (1024 * 1024)
+        # Get stats for each symbol
+        for data_type in ["whales", "spoofing", "snapshots"]:
+            type_dir = self.base_dir / data_type
+            if type_dir.exists():
+                for symbol_dir in type_dir.iterdir():
+                    if symbol_dir.is_dir():
+                        symbol = symbol_dir.name
+                        if symbol not in stats['per_symbol']:
+                            stats['per_symbol'][symbol] = {
+                                'whales': 0,
+                                'spoofs': 0,
+                                'snapshots': 0,
+                                'size_mb': 0
+                            }
+                        
+                        # Count rows in symbol's files
+                        for csv_file in symbol_dir.glob(f"*_{today}.csv"):
+                            if csv_file.exists():
+                                with open(csv_file, 'r') as f:
+                                    row_count = sum(1 for line in f) - 1  # Minus header
+                                    
+                                file_size_mb = csv_file.stat().st_size / (1024 * 1024)
+                                
+                                if 'whales' in csv_file.name:
+                                    stats['per_symbol'][symbol]['whales'] = row_count
+                                    stats['total']['whales_logged'] += row_count
+                                elif 'spoofing' in csv_file.name:
+                                    stats['per_symbol'][symbol]['spoofs'] = row_count
+                                    stats['total']['spoofs_logged'] += row_count
+                                elif 'snapshots' in csv_file.name:
+                                    stats['per_symbol'][symbol]['snapshots'] = row_count
+                                    stats['total']['snapshots_logged'] += row_count
+                                    
+                                stats['per_symbol'][symbol]['size_mb'] += file_size_mb
+                                stats['total']['total_size_mb'] += file_size_mb
                 
         return stats
         
