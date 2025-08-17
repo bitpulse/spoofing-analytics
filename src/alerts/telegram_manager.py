@@ -42,8 +42,15 @@ class TelegramAlertManager:
         
         if self.enabled and config.telegram_bot_token:
             try:
-                self.bot = Bot(token=config.telegram_bot_token)
-                logger.info("Telegram bot initialized successfully")
+                # Use connection pooling for better performance
+                from telegram.request import HTTPXRequest
+                request = HTTPXRequest(
+                    connection_pool_size=8,  # Keep 8 connections in pool
+                    connect_timeout=30.0,
+                    read_timeout=30.0
+                )
+                self.bot = Bot(token=config.telegram_bot_token, request=request)
+                logger.info("Telegram bot initialized with connection pooling")
                 self.start_alert_thread()
             except Exception as e:
                 logger.error(f"Failed to initialize Telegram bot: {e}")

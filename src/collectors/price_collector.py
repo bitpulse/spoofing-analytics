@@ -69,9 +69,14 @@ class PriceCollector:
         self.trade_history = deque(maxlen=300)  # Last 300 trades
         self.last_save_time = time.time()
         
-        # CSV file management
-        self.current_file = None
-        self.csv_writer = None
+        # CSV file management with async queue
+        import threading
+        import queue
+        self.save_queue = queue.Queue(maxsize=1000)
+        self.writer_thread = None
+        self.running = False
+        self.current_csv_path = None
+        self._start_async_writer()
         
     def get_current_csv_path(self) -> Path:
         """Get path for current hour's CSV file"""
@@ -164,26 +169,74 @@ class PriceCollector:
         
         return price_data
     
-    def save_price_data(self, price_data: PriceData):
-        """Save price data to CSV"""
-        csv_path = self.get_current_csv_path()
+    def _start_async_writer(self):
+        """Start background thread for async CSV writing"""
+        import threading
+        self.running = True
+        self.writer_thread = threading.Thread(target=self._async_writer_loop, daemon=True)
+        self.writer_thread.start()
+    
+    def _async_writer_loop(self):
+        """Background loop for writing CSV data"""
+        import csv
+        file_handle = None
+        csv_writer = None
+        current_path = None
         
+        while self.running:
+            try:
+                # Get next item from queue (timeout to check running flag)
+                data_dict = self.save_queue.get(timeout=1.0)
+                
+                csv_path = self.get_current_csv_path()
+                
+                # Check if we need a new file (hourly rotation)
+                if csv_path != current_path:
+                    # Close old file if exists
+                    if file_handle:
+                        file_handle.close()
+                    
+                    # Open new file
+                    current_path = csv_path
+                    file_exists = csv_path.exists()
+                    file_handle = open(csv_path, 'a', newline='')
+                    
+                    if not file_exists:
+                        # Write headers for new file
+                        fieldnames = list(data_dict.keys())
+                        csv_writer = csv.DictWriter(file_handle, fieldnames=fieldnames)
+                        csv_writer.writeheader()
+                        logger.info(f"Created new price CSV: {csv_path}")
+                    else:
+                        fieldnames = list(data_dict.keys())
+                        csv_writer = csv.DictWriter(file_handle, fieldnames=fieldnames)
+                
+                # Write data
+                if csv_writer:
+                    csv_writer.writerow(data_dict)
+                    file_handle.flush()  # Ensure data is written
+                    
+            except Exception as e:
+                if str(e) != "'NoneType' object has no attribute 'get'":  # Ignore timeout
+                    logger.error(f"Error in async CSV writer: {e}")
+        
+        # Cleanup on exit
+        if file_handle:
+            file_handle.close()
+    
+    def save_price_data(self, price_data: PriceData):
+        """Queue price data for async CSV writing"""
         # Convert to dict for CSV
         data_dict = asdict(price_data)
         data_dict['timestamp'] = price_data.timestamp.isoformat()
         
-        # Check if we need a new file (hourly rotation)
-        if not csv_path.exists():
-            # Create new file with headers
-            df = pd.DataFrame([data_dict])
-            df.to_csv(csv_path, index=False)
-            logger.info(f"Created new price CSV: {csv_path}")
-        else:
-            # Append to existing file
-            df = pd.DataFrame([data_dict])
-            df.to_csv(csv_path, mode='a', header=False, index=False)
-        
-        self.last_save_time = time.time()
+        # Add to queue (non-blocking)
+        try:
+            self.save_queue.put_nowait(data_dict)
+            self.last_save_time = time.time()
+        except:
+            # Queue full, skip this data point
+            logger.warning(f"Price save queue full for {self.symbol}, skipping data point")
     
     def should_save(self) -> bool:
         """Determine if we should save (every second)"""

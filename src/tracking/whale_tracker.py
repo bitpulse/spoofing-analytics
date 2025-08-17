@@ -82,6 +82,9 @@ class WhaleTracker:
         # Active whales by symbol
         self.active_whales: Dict[str, Dict[str, TrackedWhale]] = {}
         
+        # Index for faster lookups: symbol -> side -> list of whale_ids
+        self.whale_index: Dict[str, Dict[str, set]] = {}
+        
         # Recently disappeared whales (might reappear)
         self.recent_whales: Dict[str, List[TrackedWhale]] = {}
         
@@ -110,6 +113,7 @@ class WhaleTracker:
         if symbol not in self.active_whales:
             self.active_whales[symbol] = {}
             self.recent_whales[symbol] = []
+            self.whale_index[symbol] = {'bid': set(), 'ask': set()}
         
         # First check active whales
         whale_id = self._match_active_whale(symbol, side, price, size)
@@ -141,8 +145,14 @@ class WhaleTracker:
     def _match_active_whale(self, symbol: str, side: str, price: float, size: float) -> Optional[str]:
         """Check if matches any active whale"""
         
-        for whale_id, whale in self.active_whales[symbol].items():
-            if whale.side != side:
+        # Use index for faster lookup (O(1) to get relevant whales)
+        if symbol not in self.whale_index or side not in self.whale_index[symbol]:
+            return None
+            
+        # Only check whales with matching side
+        for whale_id in self.whale_index[symbol][side]:
+            whale = self.active_whales[symbol].get(whale_id)
+            if not whale:
                 continue
                 
             # Check price match (within tolerance)
@@ -240,6 +250,9 @@ class WhaleTracker:
         
         # Add to active tracking
         self.active_whales[symbol][whale_id] = whale
+        # Update index for faster lookups
+        if side in self.whale_index[symbol]:
+            self.whale_index[symbol][side].add(whale_id)
         self.total_whales_tracked += 1
         
         logger.debug(f"New whale tracked: {whale_id} - ${value_usd:,.0f} at ${price:,.2f}")
