@@ -5,6 +5,7 @@ Collects and saves price, volume, and trade data for correlation analysis
 
 import asyncio
 import json
+import queue
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -216,9 +217,11 @@ class PriceCollector:
                     csv_writer.writerow(data_dict)
                     file_handle.flush()  # Ensure data is written
                     
+            except queue.Empty:
+                # Normal timeout - no data to write, continue loop
+                continue
             except Exception as e:
-                if str(e) != "'NoneType' object has no attribute 'get'":  # Ignore timeout
-                    logger.error(f"Error in async CSV writer: {e}")
+                logger.error(f"Error in async CSV writer: {e}")
         
         # Cleanup on exit
         if file_handle:

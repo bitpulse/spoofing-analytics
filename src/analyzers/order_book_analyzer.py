@@ -31,7 +31,6 @@ class OrderBookAnalyzer:
         
         # Track which spoofs have already been logged to prevent duplicates
         # Use a deque with max size to automatically limit memory usage
-        from collections import deque
         self.logged_spoofs = deque(maxlen=10000)  # Keep last 10k spoofs
         self.logged_spoofs_set = set()  # For O(1) lookups
         self.last_spoof_clear_time = None
