@@ -157,9 +157,13 @@ class TelegramAlertManager:
             color_emoji = "🔴"
             trend_emoji = "📉"
         
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
         message = (
             f"{emoji} **WHALE {action}** {emoji}\n"
             f"━━━━━━━━━━━━━━━━\n"
+            f"⏰ **{timestamp}**\n"
             f"**{symbol}**\n"
             f"Type: {color_emoji} **{direction} WALL**\n"
             f"Price: **${whale.price:,.2f}**\n"
@@ -185,12 +189,16 @@ class TelegramAlertManager:
     
     def _format_market_alert(self, snapshot: OrderBookSnapshot, alert_type: str) -> str:
         """Format market condition alert"""
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
         if alert_type == "EXTREME_IMBALANCE":
             emoji = "⚖️" if snapshot.volume_imbalance > 0 else "⚖️"
             direction = "BUY" if snapshot.volume_imbalance > 0 else "SELL"
             
             return (
                 f"{emoji} **EXTREME ORDER IMBALANCE** {emoji}\n"
+                f"⏰ **{timestamp}**\n"
                 f"Symbol: {snapshot.symbol}\n"
                 f"Imbalance: {abs(snapshot.volume_imbalance*100):.1f}% {direction} side\n"
                 f"Bid Volume: ${snapshot.bid_volume_value:,.0f}\n"
@@ -204,6 +212,7 @@ class TelegramAlertManager:
             
             return (
                 f"🐋🐋 **WHALE CLUSTER DETECTED** 🐋🐋\n"
+                f"⏰ **{timestamp}**\n"
                 f"Symbol: {snapshot.symbol}\n"
                 f"Total Whales: {total_whales}\n"
                 f"Bid Whales: {len(snapshot.whale_bids)}\n"
@@ -212,7 +221,7 @@ class TelegramAlertManager:
                 f"⚠️ Unusual concentration of large orders"
             )
         
-        return f"Alert: {alert_type} on {snapshot.symbol}"
+        return f"Alert: {alert_type} on {snapshot.symbol} at {timestamp}"
     
     def _is_throttled(self, alert_key: str, cooldown: Optional[int] = None) -> bool:
         """Check if alert should be throttled"""
@@ -519,8 +528,12 @@ class TelegramAlertManager:
             color_emoji = "🔴"
             direction = "SELL"
             
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
         message = (
             f"🚨 **MEGA SPOOFING DETECTED** 🚨\n"
+            f"⏰ **{timestamp}**\n"
             f"Symbol: {symbol}\n"
             f"Side: {color_emoji} **{direction}**\n"
             f"Price: ${whale.price:,.2f}\n"
