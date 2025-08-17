@@ -28,6 +28,10 @@ class OrderBookAnalyzer:
         # Initialize whale tracking
         self.whale_tracker = WhaleTracker()
         
+        # Track which spoofs have already been logged to prevent duplicates
+        self.logged_spoofs = set()
+        self.last_spoof_clear_time = None
+        
         # Initialize CSV logging
         self.csv_logger = CSVLogger() if enable_csv_logging else None
         self.snapshot_counter = 0  # Log snapshots periodically
@@ -44,6 +48,16 @@ class OrderBookAnalyzer:
     
     def analyze_snapshot(self, snapshot: OrderBookSnapshot) -> OrderBookSnapshot:
         """Perform complete analysis on order book snapshot"""
+        
+        # Clear logged spoofs daily to prevent memory issues
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        if self.last_spoof_clear_time is None:
+            self.last_spoof_clear_time = now
+        elif (now - self.last_spoof_clear_time) > timedelta(hours=24):
+            logger.info(f"Clearing logged spoofs set (had {len(self.logged_spoofs)} entries)")
+            self.logged_spoofs.clear()
+            self.last_spoof_clear_time = now
         
         # Detect whale orders with tracking
         snapshot.whale_bids = self._detect_whale_orders(
@@ -64,12 +78,19 @@ class OrderBookAnalyzer:
         # Check for disappeared whales (potential spoofing)
         self.whale_tracker.process_snapshot_whales(snapshot.symbol, current_whale_ids)
         
-        # Check and log spoofing events
+        # Check and log spoofing events (with deduplication)
         if self.csv_logger:
             for whale_id in list(self.whale_tracker.recent_whales.get(snapshot.symbol, [])):
                 whale_summary = self.whale_tracker.get_whale_summary(whale_id.whale_id, snapshot.symbol)
                 if whale_summary and whale_summary.get('likely_spoof'):
-                    self.csv_logger.log_spoofing_from_dict(whale_summary)
+                    # Create unique key for this spoof (symbol + whale_id)
+                    spoof_key = f"{snapshot.symbol}_{whale_id.whale_id}"
+                    
+                    # Only log if we haven't logged this spoof before
+                    if spoof_key not in self.logged_spoofs:
+                        self.csv_logger.log_spoofing_from_dict(whale_summary)
+                        self.logged_spoofs.add(spoof_key)
+                        logger.info(f"Logged new spoof: {whale_id.whale_id[:50]}...")
         
         # Calculate whale imbalance
         snapshot.whale_imbalance = len(snapshot.whale_bids) - len(snapshot.whale_asks)
