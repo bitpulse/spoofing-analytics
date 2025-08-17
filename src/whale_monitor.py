@@ -13,10 +13,36 @@ This module continuously monitors Binance order books to detect and track whale 
 6. Sends Telegram alerts for significant whale activity
 
 Usage:
+    # Monitor default symbols from .env or SYMBOLS environment variable
     python -m src.whale_monitor
+    
+    # Monitor specific group (1-5, each group has 10 pre-configured pairs)
+    python -m src.whale_monitor 1      # Group 1: Ultra high risk meme coins
+    python -m src.whale_monitor 2      # Group 2: AI & Gaming narrative
+    python -m src.whale_monitor 3      # Group 3: Low cap DeFi & L2s
+    python -m src.whale_monitor 4      # Group 4: Volatile alts
+    python -m src.whale_monitor 5      # Group 5: Mid-cap majors
+    
+    # Alternative syntax
+    python -m src.whale_monitor --group 1
+    python -m src.whale_monitor --group=2
+    
+    # Run multiple instances in parallel (different terminals)
+    python -m src.whale_monitor 1 &    # Terminal 1
+    python -m src.whale_monitor 2 &    # Terminal 2
+    python -m src.whale_monitor 3 &    # Terminal 3
+    python -m src.whale_monitor 4 &    # Terminal 4
+    python -m src.whale_monitor 5 &    # Terminal 5
 
 The system will run continuously until stopped with Ctrl+C.
 All collected data is saved to the data/ directory.
+
+Groups are optimized for detecting manipulation:
+- Group 1: Meme coins with 97%+ manipulation rates
+- Group 2: Narrative-driven tokens with 50-70% daily swings  
+- Group 3: Thin order books perfect for spoofing
+- Group 4: Regular 30-50% moves, whale hunting grounds
+- Group 5: Higher liquidity but still manipulated
 """
 
 import asyncio
@@ -158,8 +184,21 @@ class WhaleAnalyticsSystem:
         logger.info("Starting Whale Analytics System...")
         self.running = True
         
+        # Log which group or symbols we're monitoring
+        if len(sys.argv) > 1 and sys.argv[-1].isdigit():
+            group_num = int(sys.argv[-1])
+            if 1 <= group_num <= 5:
+                group_descriptions = {
+                    1: "Ultra High Risk - Meme Coins & New Listings",
+                    2: "AI & Gaming Narrative - Heavy Speculation",
+                    3: "Low Cap DeFi & L2s - Liquidity Games",
+                    4: "Volatile Alts - Manipulation Favorites",
+                    5: "Mid-Cap Majors & Established Alts"
+                }
+                logger.info(f"Monitoring Group {group_num}: {group_descriptions[group_num]}")
+        
         # Log thresholds for each symbol
-        logger.info("Configured whale thresholds:")
+        logger.info(f"Monitoring {len(config.symbols_list)} trading pairs:")
         for symbol in config.symbols_list:
             thresholds = config.get_whale_thresholds(symbol)
             logger.info(f"  {symbol}: Whale=${thresholds['whale']:,.0f}, Mega=${thresholds['mega_whale']:,.0f}")
@@ -259,6 +298,50 @@ class WhaleAnalyticsSystem:
 
 def main():
     """Main entry point"""
+    # Parse command line arguments for group selection
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Whale Analytics System - Monitor crypto whale activity",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m src.whale_monitor          # Use symbols from .env
+  python -m src.whale_monitor 1        # Monitor group 1 (meme coins)
+  python -m src.whale_monitor --group 2  # Monitor group 2 (AI/Gaming)
+  
+Groups (10 pairs each):
+  1: Ultra high risk meme coins (PEPE, BONK, WIF, etc.)
+  2: AI & Gaming tokens (WLD, FET, SAND, AXS, etc.)
+  3: Low cap DeFi & L2s (SPELL, ANKR, ARB, OP, etc.)
+  4: Volatile alts (SEI, INJ, APT, SUI, etc.)
+  5: Mid-cap majors (SOL, ADA, DOGE, AVAX, etc.)
+        """
+    )
+    
+    # Support both positional and named argument for group
+    parser.add_argument(
+        'group_num',
+        nargs='?',
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        help='Monitoring group number (1-5)'
+    )
+    parser.add_argument(
+        '--group',
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        help='Monitoring group number (1-5)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Determine which group to use (positional takes precedence)
+    group_to_use = args.group_num or args.group
+    
+    if group_to_use:
+        logger.info(f"Starting Whale Analytics System for Group {group_to_use}")
+        # The config will automatically detect the group from sys.argv
+    
     system = WhaleAnalyticsSystem()
     
     try:

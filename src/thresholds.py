@@ -212,9 +212,68 @@ PAIR_THRESHOLDS = {
         "whale": 30000,  # $30K - GMX
         "mega_whale": 150000  # $150K
     },
-    "DYDX": {
+    "DYDXUSDT": {  # Fixed: Added USDT suffix for consistency
         "whale": 25000,  # $25K - dYdX
         "mega_whale": 125000  # $125K
+    },
+    
+    # === ADDITIONAL HIGH-MANIPULATION PAIRS ===
+    # New meme coins and volatile alts for 50-pair monitoring
+    "ACTUSDT": {  # AI Prophecy meme
+        "whale": 15000,  # $15K - Recent 1000% pump
+        "mega_whale": 75000  # $75K
+    },
+    "PNUTUSDT": {  # Peanut the Squirrel
+        "whale": 20000,  # $20K - Extreme volatility
+        "mega_whale": 100000  # $100K
+    },
+    "NEIROUSDT": {  # NEIRO meme
+        "whale": 10000,  # $10K - New listing
+        "mega_whale": 50000  # $50K
+    },
+    "MEMEUSDT": {  # MEME coin
+        "whale": 25000,  # $25K
+        "mega_whale": 125000  # $125K
+    },
+    "DOGSUSDT": {  # Dogs community
+        "whale": 15000,  # $15K
+        "mega_whale": 75000  # $75K
+    },
+    "ENJUSDT": {  # Enjin gaming
+        "whale": 20000,  # $20K
+        "mega_whale": 100000  # $100K
+    },
+    "MANAUSDT": {  # Decentraland full symbol
+        "whale": 25000,  # $25K
+        "mega_whale": 125000  # $125K
+    },
+    "BLURUSDT": {  # Blur NFT marketplace
+        "whale": 30000,  # $30K
+        "mega_whale": 150000  # $150K
+    },
+    "HOOKUSDT": {  # Hooked Protocol
+        "whale": 15000,  # $15K
+        "mega_whale": 75000  # $75K
+    },
+    "MAGICUSDT": {  # Magic gaming
+        "whale": 20000,  # $20K
+        "mega_whale": 100000  # $100K
+    },
+    "DOTUSDT": {  # Polkadot
+        "whale": 100000,  # $100K
+        "mega_whale": 500000  # $500K
+    },
+    "NEARUSDT": {  # NEAR Protocol
+        "whale": 80000,  # $80K
+        "mega_whale": 400000  # $400K
+    },
+    "ATOMUSDT": {  # Cosmos
+        "whale": 70000,  # $70K
+        "mega_whale": 350000  # $350K
+    },
+    "FTMUSDT": {  # Fantom
+        "whale": 40000,  # $40K
+        "mega_whale": 200000  # $200K
     }
 }
 
@@ -290,3 +349,112 @@ def get_strategy_config(strategy_name: str) -> dict:
         Strategy configuration dictionary
     """
     return STRATEGY_CONFIG.get(strategy_name, {}).copy()
+
+# === MONITORING GROUPS FOR PARALLEL EXECUTION ===
+# Each group contains 10 pairs optimized for manipulation detection
+# Run with: python -m src.whale_monitor --group 1 (or 2,3,4,5)
+MONITORING_GROUPS = {
+    # Group 1: Ultra High Risk - Meme Coins & New Listings
+    # Most prone to pump & dump, requires lowest thresholds
+    1: [
+        "1000PEPEUSDT",  # Meme king, 97% manipulation rate
+        "1000BONKUSDT",  # Most volatile meme
+        "WIFUSDT",       # DogWifHat, whale playground  
+        "FLOKIUSDT",     # Small cap, extreme swings
+        "SHIBUSDT",      # Retail magnet, easy to spoof
+        "ACTUSDT",       # AI Prophecy, recent pump
+        "PNUTUSDT",      # Peanut Squirrel, 1000% surge history
+        "NEIROUSDT",     # New meme, high volatility
+        "MEMEUSDT",      # Meta meme coin
+        "DOGSUSDT"       # Dogs community token
+    ],
+    
+    # Group 2: AI & Gaming Narrative - Heavy Speculation
+    # 50-70% daily swings, narrative-driven manipulation
+    2: [
+        "WLDUSDT",       # Worldcoin, Sam Altman hype
+        "FETUSDT",       # Fetch.ai, AI leader
+        "AGIXUSDT",      # SingularityNET
+        "RNDR",          # Render, GPU/AI narrative
+        "SANDUSDT",      # Sandbox, metaverse
+        "AXSUSDT",       # Axie, gaming comeback
+        "IMXUSDT",       # Immutable X, gaming L2
+        "GALAUSDT",      # Gala Games
+        "ENJUSDT",       # Enjin, gaming infrastructure
+        "MANAUSDT"       # Decentraland, virtual land
+    ],
+    
+    # Group 3: Low Cap DeFi & L2s - Liquidity Games
+    # Thin order books, perfect for spoofing
+    3: [
+        "SPELLUSDT",     # Spell Token, ultra low cap
+        "ANKRUSDT",      # Ankr, thin liquidity
+        "CELRUSDT",      # Celer, easy to move
+        "LRCUSDT",       # Loopring, DeFi L2
+        "CTSIUSDT",      # Cartesi, low volume
+        "PERPUSDT",      # Perpetual Protocol
+        "DYDXUSDT",      # dYdX, DEX token
+        "GMXUSDT",       # GMX, perp DEX
+        "ARBUSDT",       # Arbitrum L2
+        "OPUSDT"         # Optimism L2
+    ],
+    
+    # Group 4: Volatile Alts - Manipulation Favorites  
+    # Regular 30-50% moves, whale hunting grounds
+    4: [
+        "SEIUSDT",       # SEI, 97.8% manipulation observed
+        "INJUSDT",       # Injective, DeFi volatile
+        "APTUSDT",       # Aptos, VC games
+        "SUIUSDT",       # Sui, Move-based L1
+        "STRKUSDT",      # StarkNet, new L2
+        "CFXUSDT",       # Conflux, China pump
+        "IDUSDT",        # Space ID, domain names
+        "BLURUSDT",      # Blur, NFT marketplace
+        "HOOKUSDT",      # Hooked Protocol
+        "MAGICUSDT"      # Magic, gaming ecosystem
+    ],
+    
+    # Group 5: Mid-Cap Majors & Established Alts
+    # Higher liquidity but still manipulated
+    5: [
+        "SOLUSDT",       # Solana, meme chain
+        "ADAUSDT",       # Cardano, retail heavy
+        "DOGEUSDT",      # Original meme
+        "AVAXUSDT",      # Avalanche
+        "MATICUSDT",     # Polygon, easily moved
+        "LINKUSDT",      # Chainlink oracle
+        "DOTUSDT",       # Polkadot
+        "NEARUSDT",      # NEAR Protocol
+        "ATOMUSDT",      # Cosmos
+        "FTMUSDT"        # Fantom
+    ]
+}
+
+def get_monitoring_group(group_number: int) -> list:
+    """
+    Get the list of trading pairs for a specific monitoring group.
+    
+    Args:
+        group_number: Group number (1-5)
+    
+    Returns:
+        List of trading pair symbols for the group
+    
+    Raises:
+        ValueError: If group_number is not between 1 and 5
+    """
+    if group_number not in MONITORING_GROUPS:
+        raise ValueError(f"Invalid group number {group_number}. Must be between 1 and 5.")
+    return MONITORING_GROUPS[group_number].copy()
+
+def get_all_monitoring_pairs() -> list:
+    """
+    Get all monitoring pairs across all groups.
+    
+    Returns:
+        List of all 50 trading pairs
+    """
+    all_pairs = []
+    for group_pairs in MONITORING_GROUPS.values():
+        all_pairs.extend(group_pairs)
+    return all_pairs

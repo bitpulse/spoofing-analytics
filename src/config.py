@@ -3,7 +3,8 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator
 from dotenv import load_dotenv
 import os
-from src.thresholds import get_thresholds
+import sys
+from src.thresholds import get_thresholds, get_monitoring_group
 
 load_dotenv()
 
@@ -23,6 +24,12 @@ class Config(BaseSettings):
     symbols: str = Field(
         default="BTCUSDT",
         env="SYMBOLS"
+    )
+    
+    # Monitoring Group (1-5 for grouped monitoring, 0 for custom symbols)
+    monitoring_group: int = Field(
+        default=0,
+        env="MONITORING_GROUP"
     )
     
     # Order Book Settings
@@ -65,6 +72,40 @@ class Config(BaseSettings):
     
     @property
     def symbols_list(self) -> List[str]:
+        # Check if running with --group argument
+        if len(sys.argv) > 1:
+            try:
+                # Support both --group N and just N formats
+                arg = sys.argv[-1]  # Get last argument
+                if arg.startswith('--group'):
+                    # Extract number after --group
+                    if '=' in arg:
+                        group_num = int(arg.split('=')[1])
+                    else:
+                        # Next argument should be the number
+                        idx = sys.argv.index(arg)
+                        if idx + 1 < len(sys.argv):
+                            group_num = int(sys.argv[idx + 1])
+                        else:
+                            raise ValueError("--group requires a number")
+                else:
+                    # Try to parse as direct number
+                    group_num = int(arg)
+                
+                # Validate group number and return pairs
+                if 1 <= group_num <= 5:
+                    return get_monitoring_group(group_num)
+            except (ValueError, IndexError):
+                pass  # Fall through to normal symbol handling
+        
+        # Check environment variable for monitoring group
+        if self.monitoring_group > 0:
+            try:
+                return get_monitoring_group(self.monitoring_group)
+            except ValueError:
+                pass  # Fall through to normal symbol handling
+        
+        # Default: use symbols from config/env
         if isinstance(self.symbols, str):
             return [s.strip() for s in self.symbols.split(",")]
         return self.symbols
