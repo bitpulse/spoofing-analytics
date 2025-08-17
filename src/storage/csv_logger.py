@@ -87,6 +87,33 @@ class MarketSnapshot:
     resistance_level: Optional[float]
     
 
+@dataclass
+class AlertEvent:
+    """Alert event data for Telegram notifications"""
+    timestamp: str
+    symbol: str
+    alert_type: str  # whale, market, spoofing, message
+    alert_subtype: str  # DETECTED, EXTREME_IMBALANCE, MULTIPLE_WHALES, etc.
+    severity: str  # info, warning, critical
+    price: float
+    value_usd: float
+    side: str  # bid, ask, both, n/a
+    percentage_of_book: float
+    message: str  # The formatted alert message
+    
+    # Additional context
+    whale_id: Optional[str] = None
+    time_active_seconds: Optional[float] = None
+    volume_imbalance: Optional[float] = None
+    bid_volume_usd: Optional[float] = None
+    ask_volume_usd: Optional[float] = None
+    whale_count: Optional[int] = None
+    bid_whale_count: Optional[int] = None
+    ask_whale_count: Optional[int] = None
+    trigger_threshold: Optional[float] = None
+    was_throttled: bool = False
+    
+
 class CSVLogger:
     """Manages CSV logging with daily rotation and compression"""
     
@@ -115,6 +142,7 @@ class CSVLogger:
             self.base_dir / "whales",
             self.base_dir / "spoofing",
             self.base_dir / "snapshots",
+            self.base_dir / "alerts",
             self.base_dir / "archive"
         ]
         for dir_path in dirs:
@@ -141,6 +169,11 @@ class CSVLogger:
             symbol_dir = self.base_dir / "snapshots" / symbol
             symbol_dir.mkdir(parents=True, exist_ok=True)
             return symbol_dir / f"{symbol}_snapshots_{date_hour}.csv"
+        elif data_type == "alerts" and symbol:
+            # Create per-symbol subdirectory for alerts
+            symbol_dir = self.base_dir / "alerts" / symbol
+            symbol_dir.mkdir(parents=True, exist_ok=True)
+            return symbol_dir / f"{symbol}_alerts_{date_hour}.csv"
         else:
             # Fallback for any other type
             return self.base_dir / f"{data_type}_{date_hour}.csv"
@@ -156,6 +189,10 @@ class CSVLogger:
     def log_snapshot(self, snapshot: MarketSnapshot):
         """Log a market snapshot"""
         self.write_queue.put(("snapshot", snapshot))
+        
+    def log_alert(self, event: AlertEvent):
+        """Log an alert event"""
+        self.write_queue.put(("alert", event))
         
     def log_whale_from_dict(self, whale_data: Dict, snapshot_data: Dict = None):
         """Convenience method to log whale from dictionary"""
@@ -249,6 +286,8 @@ class CSVLogger:
                         self._write_spoofing(event)
                     elif data_type == "snapshot":
                         self._write_snapshot(event)
+                    elif data_type == "alert":
+                        self._write_alert(event)
                         
             except Exception as e:
                 logger.error(f"Error processing write queue: {e}")
@@ -267,6 +306,11 @@ class CSVLogger:
         """Write market snapshot to CSV - per symbol file"""
         filename = self.get_filename("snapshots", event.symbol)
         self._write_csv_row(filename, asdict(event), MarketSnapshot)
+        
+    def _write_alert(self, event: AlertEvent):
+        """Write alert event to CSV - per symbol file"""
+        filename = self.get_filename("alerts", event.symbol)
+        self._write_csv_row(filename, asdict(event), AlertEvent)
         
     def _write_csv_row(self, filename: Path, row_dict: Dict, dataclass_type):
         """Write a row to CSV file"""
@@ -305,7 +349,7 @@ class CSVLogger:
         self.csv_writers.clear()
         
         # Compress yesterday's files
-        for subdir in ["whales", "spoofing", "snapshots"]:
+        for subdir in ["whales", "spoofing", "snapshots", "alerts"]:
             dir_path = self.base_dir / subdir
             for csv_file in dir_path.glob(f"*_{yesterday}.csv"):
                 self._compress_file(csv_file)
@@ -335,13 +379,14 @@ class CSVLogger:
                 'whales_logged': 0,
                 'spoofs_logged': 0,
                 'snapshots_logged': 0,
+                'alerts_logged': 0,
                 'total_size_mb': 0
             },
             'per_symbol': {}
         }
         
         # Get stats for each symbol
-        for data_type in ["whales", "spoofing", "snapshots"]:
+        for data_type in ["whales", "spoofing", "snapshots", "alerts"]:
             type_dir = self.base_dir / data_type
             if type_dir.exists():
                 for symbol_dir in type_dir.iterdir():
@@ -352,6 +397,7 @@ class CSVLogger:
                                 'whales': 0,
                                 'spoofs': 0,
                                 'snapshots': 0,
+                                'alerts': 0,
                                 'size_mb': 0
                             }
                         
@@ -372,6 +418,9 @@ class CSVLogger:
                                 elif 'snapshots' in csv_file.name:
                                     stats['per_symbol'][symbol]['snapshots'] = row_count
                                     stats['total']['snapshots_logged'] += row_count
+                                elif 'alerts' in csv_file.name:
+                                    stats['per_symbol'][symbol]['alerts'] = row_count
+                                    stats['total']['alerts_logged'] += row_count
                                     
                                 stats['per_symbol'][symbol]['size_mb'] += file_size_mb
                                 stats['total']['total_size_mb'] += file_size_mb

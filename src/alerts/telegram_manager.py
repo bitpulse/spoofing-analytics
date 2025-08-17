@@ -11,15 +11,17 @@ from collections import defaultdict
 
 from src.config import config
 from src.models.order_book import WhaleOrder, OrderBookSnapshot
+from src.storage.csv_logger import AlertEvent
 
 
 class TelegramAlertManager:
     """Manages Telegram notifications for whale alerts"""
     
-    def __init__(self):
+    def __init__(self, csv_logger=None):
         self.enabled = config.telegram_alerts_enabled
         self.bot = None
         self.channel_id = config.telegram_channel_id
+        self.csv_logger = csv_logger  # CSV logger for saving alerts
         
         # Alert throttling - prevent spam
         self.last_alert_time: Dict[str, float] = defaultdict(float)
@@ -283,6 +285,27 @@ class TelegramAlertManager:
             f"Monitoring active..."
         )
         
+        # Log startup message to CSV
+        if self.csv_logger:
+            for symbol in config.symbols_list:
+                try:
+                    alert_event = AlertEvent(
+                        timestamp=datetime.now().isoformat(),
+                        symbol=symbol,
+                        alert_type="message",
+                        alert_subtype="SYSTEM_STARTUP",
+                        severity="info",
+                        price=0,
+                        value_usd=0,
+                        side="n/a",
+                        percentage_of_book=0,
+                        message=message,
+                        was_throttled=False
+                    )
+                    self.csv_logger.log_alert(alert_event)
+                except Exception as e:
+                    logger.error(f"Failed to log startup message to CSV: {e}")
+        
         self.alert_queue.put({
             'type': 'message',
             'message': message
@@ -303,6 +326,27 @@ class TelegramAlertManager:
             f"Alerts Throttled: {self.stats['alerts_throttled']:,}\n"
             f"━━━━━━━━━━━━━━━━"
         )
+        
+        # Log summary to CSV for each symbol
+        if self.csv_logger:
+            for symbol in config.symbols_list:
+                try:
+                    alert_event = AlertEvent(
+                        timestamp=datetime.now().isoformat(),
+                        symbol=symbol,
+                        alert_type="message",
+                        alert_subtype="SYSTEM_SUMMARY",
+                        severity="info",
+                        price=0,
+                        value_usd=0,
+                        side="n/a",
+                        percentage_of_book=0,
+                        message=message,
+                        was_throttled=False
+                    )
+                    self.csv_logger.log_alert(alert_event)
+                except Exception as e:
+                    logger.error(f"Failed to log summary to CSV: {e}")
         
         self.alert_queue.put({
             'type': 'message',
@@ -374,12 +418,39 @@ class TelegramAlertManager:
         alert_key = f"{symbol}_{whale.side}_{int(whale.price/100)*100}"  # Group by price range
         
         # Check throttling
-        if self._is_throttled(alert_key):
+        was_throttled = self._is_throttled(alert_key)
+        if was_throttled:
             self.stats['alerts_throttled'] += 1
             return
         
         # Format the alert message
         message = self._format_whale_alert(whale, symbol, action)
+        
+        # Log alert to CSV if logger available
+        if self.csv_logger:
+            try:
+                # Determine severity based on whale size
+                thresholds = config.get_whale_thresholds(symbol)
+                severity = "critical" if whale.value_usd >= thresholds["mega_whale"] else "warning"
+                
+                alert_event = AlertEvent(
+                    timestamp=datetime.now().isoformat(),
+                    symbol=symbol,
+                    alert_type="whale",
+                    alert_subtype=action,
+                    severity=severity,
+                    price=whale.price,
+                    value_usd=whale.value_usd,
+                    side=whale.side,
+                    percentage_of_book=whale.percentage_of_book,
+                    message=message,
+                    whale_id=f"{whale.side}_{whale.price}_{whale.size}",
+                    trigger_threshold=thresholds["whale"],
+                    was_throttled=False
+                )
+                self.csv_logger.log_alert(alert_event)
+            except Exception as e:
+                logger.error(f"Failed to log whale alert to CSV: {e}")
         
         # Send the alert
         await self._send_message(message)
@@ -391,11 +462,38 @@ class TelegramAlertManager:
         """Process a market alert"""
         alert_key = f"{snapshot.symbol}_{alert_type}"
         
-        if self._is_throttled(alert_key, cooldown=300):  # 5 min cooldown for market alerts
+        was_throttled = self._is_throttled(alert_key, cooldown=300)  # 5 min cooldown for market alerts
+        if was_throttled:
             self.stats['alerts_throttled'] += 1
             return
         
         message = self._format_market_alert(snapshot, alert_type)
+        
+        # Log alert to CSV if logger available
+        if self.csv_logger:
+            try:
+                alert_event = AlertEvent(
+                    timestamp=datetime.now().isoformat(),
+                    symbol=snapshot.symbol,
+                    alert_type="market",
+                    alert_subtype=alert_type,
+                    severity="warning" if alert_type == "MULTIPLE_WHALES" else "critical",
+                    price=snapshot.mid_price,
+                    value_usd=0,  # Not applicable for market alerts
+                    side="both",
+                    percentage_of_book=0,
+                    message=message,
+                    volume_imbalance=snapshot.volume_imbalance if alert_type == "EXTREME_IMBALANCE" else None,
+                    bid_volume_usd=snapshot.bid_volume_value,
+                    ask_volume_usd=snapshot.ask_volume_value,
+                    whale_count=len(snapshot.whale_bids) + len(snapshot.whale_asks) if alert_type == "MULTIPLE_WHALES" else None,
+                    bid_whale_count=len(snapshot.whale_bids),
+                    ask_whale_count=len(snapshot.whale_asks),
+                    was_throttled=False
+                )
+                self.csv_logger.log_alert(alert_event)
+            except Exception as e:
+                logger.error(f"Failed to log market alert to CSV: {e}")
         
         await self._send_message(message)
         self.last_alert_time[alert_key] = time.time()
@@ -408,7 +506,8 @@ class TelegramAlertManager:
         
         # Throttle spoofing alerts more aggressively
         alert_key = f"spoofing_{symbol}_{whale.side}"
-        if self._is_throttled(alert_key, cooldown=600):  # 10 minute cooldown
+        was_throttled = self._is_throttled(alert_key, cooldown=600)  # 10 minute cooldown
+        if was_throttled:
             self.stats['alerts_throttled'] += 1
             return
             
@@ -432,6 +531,29 @@ class TelegramAlertManager:
             f"⚠️ Massive order placed and removed\n"
             f"💡 Likely price manipulation attempt"
         )
+        
+        # Log alert to CSV if logger available
+        if self.csv_logger:
+            try:
+                alert_event = AlertEvent(
+                    timestamp=datetime.now().isoformat(),
+                    symbol=symbol,
+                    alert_type="spoofing",
+                    alert_subtype="MEGA_SPOOFING",
+                    severity="critical",
+                    price=whale.price,
+                    value_usd=whale.value_usd,
+                    side=whale.side,
+                    percentage_of_book=whale.percentage_of_book,
+                    message=message,
+                    whale_id=f"{whale.side}_{whale.price}_{whale.size}",
+                    time_active_seconds=time_active,
+                    trigger_threshold=5000000,  # $5M threshold for mega spoofing
+                    was_throttled=False
+                )
+                self.csv_logger.log_alert(alert_event)
+            except Exception as e:
+                logger.error(f"Failed to log spoofing alert to CSV: {e}")
         
         await self._send_message(message, parse_mode='Markdown')
         self.last_alert_time[alert_key] = time.time()

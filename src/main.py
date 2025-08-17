@@ -11,6 +11,7 @@ from src.collectors.price_collector import PriceCollector
 from src.models.order_book import OrderBookSnapshot
 from src.analyzers.order_book_analyzer import OrderBookAnalyzer
 from src.storage.memory_store import MemoryStore
+from src.storage.csv_logger import CSVLogger
 from src.alerts.telegram_manager import TelegramAlertManager
 
 
@@ -18,8 +19,15 @@ class WhaleAnalyticsSystem:
     def __init__(self):
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
-        self.telegram_manager = TelegramAlertManager() if config.telegram_alerts_enabled else None
-        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager)
+        
+        # Create a shared CSV logger instance
+        self.csv_logger = CSVLogger()
+        
+        # Pass CSV logger to both Telegram manager and analyzer
+        self.telegram_manager = TelegramAlertManager(csv_logger=self.csv_logger) if config.telegram_alerts_enabled else None
+        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)  # Disable analyzer's own CSV logger
+        self.analyzer.csv_logger = self.csv_logger  # Use shared CSV logger instead
+        
         self.storage = MemoryStore()
         
         # Initialize price collectors for each symbol with thread safety
