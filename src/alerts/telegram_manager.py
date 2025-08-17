@@ -42,8 +42,15 @@ class TelegramAlertManager:
         
         if self.enabled and config.telegram_bot_token:
             try:
-                self.bot = Bot(token=config.telegram_bot_token)
-                logger.info("Telegram bot initialized successfully")
+                # Use connection pooling for better performance
+                from telegram.request import HTTPXRequest
+                request = HTTPXRequest(
+                    connection_pool_size=8,  # Keep 8 connections in pool
+                    connect_timeout=30.0,
+                    read_timeout=30.0
+                )
+                self.bot = Bot(token=config.telegram_bot_token, request=request)
+                logger.info("Telegram bot initialized with connection pooling")
                 self.start_alert_thread()
             except Exception as e:
                 logger.error(f"Failed to initialize Telegram bot: {e}")
@@ -240,14 +247,32 @@ class TelegramAlertManager:
         threshold_info = []
         for symbol in config.symbols_list:
             thresholds = config.get_whale_thresholds(symbol)
+            # Format thresholds appropriately based on their size
+            whale_val = thresholds['whale']
+            mega_val = thresholds['mega_whale']
+            
+            if whale_val >= 1000000:
+                whale_str = f"${whale_val/1000000:.1f}M"
+            elif whale_val >= 1000:
+                whale_str = f"${whale_val/1000:.0f}K"
+            else:
+                whale_str = f"${whale_val:.0f}"
+            
+            if mega_val >= 1000000:
+                mega_str = f"${mega_val/1000000:.1f}M"
+            elif mega_val >= 1000:
+                mega_str = f"${mega_val/1000:.0f}K"
+            else:
+                mega_str = f"${mega_val:.0f}"
+            
             threshold_info.append(
-                f"  **{symbol}**: 🐋${thresholds['whale']/1000000:.1f}M / 🔥${thresholds['mega_whale']/1000000:.1f}M"
+                f"  {symbol}: 🐋{whale_str} / 🔥{mega_str}"
             )
         
         message = (
-            "🚀 **Whale Analytics System Started** 🚀\n"
+            "🚀 Whale Analytics System Started 🚀\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"**Monitoring Pairs:**\n"
+            f"Monitoring Pairs:\n"
             f"{chr(10).join(threshold_info)}\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"Alert Thresholds:\n"

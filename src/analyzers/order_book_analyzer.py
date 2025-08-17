@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 from collections import deque
 from loguru import logger
 import asyncio
+import time
 
 from src.models.order_book import OrderBookSnapshot, PriceLevel, WhaleOrder
 from src.config import config
@@ -28,6 +29,19 @@ class OrderBookAnalyzer:
         # Initialize whale tracking
         self.whale_tracker = WhaleTracker()
         
+        # Track which spoofs have already been logged to prevent duplicates
+        # Use a deque with max size to automatically limit memory usage
+        self.logged_spoofs = deque(maxlen=10000)  # Keep last 10k spoofs
+        self.logged_spoofs_set = set()  # For O(1) lookups
+        self.last_spoof_clear_time = None
+        
+        # Track last logged state for each whale to avoid redundant logging
+        # Use LRU-like approach with deque
+        self.last_logged_whale_state = {}  # whale_id -> (size, price, value_usd, timestamp)
+        self.whale_state_order = deque(maxlen=5000)  # Track order for LRU cleanup
+        self.min_log_interval = 1.0  # Minimum seconds between logs for same whale
+        self.min_size_change_pct = 5.0  # Minimum % size change to log
+        
         # Initialize CSV logging
         self.csv_logger = CSVLogger() if enable_csv_logging else None
         self.snapshot_counter = 0  # Log snapshots periodically
@@ -44,6 +58,30 @@ class OrderBookAnalyzer:
     
     def analyze_snapshot(self, snapshot: OrderBookSnapshot) -> OrderBookSnapshot:
         """Perform complete analysis on order book snapshot"""
+        
+        # Periodically clear old entries (every hour instead of daily)
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        if self.last_spoof_clear_time is None:
+            self.last_spoof_clear_time = now
+        elif (now - self.last_spoof_clear_time) > timedelta(hours=1):
+            # Clean up logged_spoofs_set if it grows too large
+            if len(self.logged_spoofs_set) > 10000:
+                # Keep only the most recent spoofs
+                self.logged_spoofs_set = set(list(self.logged_spoofs)[-5000:])
+                logger.info(f"Cleaned logged_spoofs_set, kept 5000 most recent")
+            
+            # Clean up whale state if too large
+            if len(self.last_logged_whale_state) > 5000:
+                # Keep only the most recent whale states
+                keep_ids = set(list(self.whale_state_order)[-2500:])
+                self.last_logged_whale_state = {
+                    k: v for k, v in self.last_logged_whale_state.items() 
+                    if k in keep_ids
+                }
+                logger.info(f"Cleaned whale state cache, kept 2500 most recent")
+            
+            self.last_spoof_clear_time = now
         
         # Detect whale orders with tracking
         snapshot.whale_bids = self._detect_whale_orders(
@@ -64,12 +102,20 @@ class OrderBookAnalyzer:
         # Check for disappeared whales (potential spoofing)
         self.whale_tracker.process_snapshot_whales(snapshot.symbol, current_whale_ids)
         
-        # Check and log spoofing events
+        # Check and log spoofing events (with deduplication)
         if self.csv_logger:
             for whale_id in list(self.whale_tracker.recent_whales.get(snapshot.symbol, [])):
                 whale_summary = self.whale_tracker.get_whale_summary(whale_id.whale_id, snapshot.symbol)
                 if whale_summary and whale_summary.get('likely_spoof'):
-                    self.csv_logger.log_spoofing_from_dict(whale_summary)
+                    # Create unique key for this spoof (symbol + whale_id)
+                    spoof_key = f"{snapshot.symbol}_{whale_id.whale_id}"
+                    
+                    # Only log if we haven't logged this spoof before
+                    if spoof_key not in self.logged_spoofs_set:
+                        self.csv_logger.log_spoofing_from_dict(whale_summary)
+                        self.logged_spoofs.append(spoof_key)  # Add to deque
+                        self.logged_spoofs_set.add(spoof_key)  # Add to set for lookups
+                        logger.info(f"Logged new spoof: {whale_id.whale_id[:50]}...")
         
         # Calculate whale imbalance
         snapshot.whale_imbalance = len(snapshot.whale_bids) - len(snapshot.whale_asks)
@@ -149,31 +195,56 @@ class OrderBookAnalyzer:
                 whale_orders.append(whale_order)
                 self.whale_order_history.append(whale_order)
                 
-                # Log whale to CSV with actual order data
+                # Log whale to CSV only if there's a meaningful change
                 if self.csv_logger:
-                    whale_summary = self.whale_tracker.get_whale_summary(whale_id, symbol)
-                    if whale_summary:
-                        # Override with actual current values (not the 0s from new whales)
-                        whale_summary['price'] = level.price
-                        whale_summary['size'] = level.size
-                        whale_summary['value_usd'] = value_usd
-                        whale_summary['percentage_of_book'] = percentage
-                        whale_summary['level'] = i
-                        whale_summary['symbol'] = symbol
-                        whale_summary['side'] = side
-                        whale_summary['whale_id'] = whale_id
+                    # Check if we should log this update
+                    should_log = False
+                    now = time.time()
+                    
+                    if whale_id not in self.last_logged_whale_state:
+                        # First time seeing this whale - always log
+                        should_log = True
+                    else:
+                        last_size, last_price, last_value, last_time = self.last_logged_whale_state[whale_id]
+                        time_since_last_log = now - last_time
                         
-                        # Add snapshot context
-                        snapshot_context = {
-                            'mid_price': mid_price,
-                            'spread_bps': snapshot.spread_bps if snapshot else 0,
-                            'total_bid_whales': len(snapshot.whale_bids) if snapshot else 0,
-                            'total_ask_whales': len(snapshot.whale_asks) if snapshot else 0,
-                            'volume_imbalance': snapshot.volume_imbalance if snapshot else 0,
-                            'bid_depth_1pct': snapshot.depth_1_percent if snapshot and hasattr(snapshot, 'depth_1_percent') else 0,
-                            'ask_depth_1pct': 0  # Could calculate separately if needed
-                        }
-                        self.csv_logger.log_whale_from_dict(whale_summary, snapshot_context)
+                        # Calculate changes
+                        size_change_pct = abs((level.size - last_size) / last_size * 100) if last_size > 0 else 100
+                        price_change_pct = abs((level.price - last_price) / last_price * 100) if last_price > 0 else 100
+                        
+                        # Log if: significant size change, price level change, or enough time passed
+                        if (size_change_pct > self.min_size_change_pct or 
+                            price_change_pct > 0.1 or 
+                            time_since_last_log > 10.0):  # Also log every 10 seconds regardless
+                            should_log = True
+                    
+                    if should_log:
+                        whale_summary = self.whale_tracker.get_whale_summary(whale_id, symbol)
+                        if whale_summary:
+                            # Override with actual current values
+                            whale_summary['price'] = level.price
+                            whale_summary['size'] = level.size
+                            whale_summary['value_usd'] = value_usd
+                            whale_summary['percentage_of_book'] = percentage
+                            whale_summary['level'] = i
+                            whale_summary['symbol'] = symbol
+                            whale_summary['side'] = side
+                            whale_summary['whale_id'] = whale_id
+                            
+                            # Add snapshot context
+                            snapshot_context = {
+                                'mid_price': mid_price,
+                                'spread_bps': snapshot.spread_bps if snapshot else 0,
+                                'total_bid_whales': len(snapshot.whale_bids) if snapshot else 0,
+                                'total_ask_whales': len(snapshot.whale_asks) if snapshot else 0,
+                                'volume_imbalance': snapshot.volume_imbalance if snapshot else 0,
+                                'bid_depth_1pct': snapshot.depth_1_percent if snapshot and hasattr(snapshot, 'depth_1_percent') else 0,
+                                'ask_depth_1pct': 0
+                            }
+                            self.csv_logger.log_whale_from_dict(whale_summary, snapshot_context)
+                            
+                            # Update last logged state
+                            self.last_logged_whale_state[whale_id] = (level.size, level.price, value_usd, now)
                 
                 # Use per-symbol mega whale threshold for alerts
                 alert_threshold = mega_whale_threshold * 1.5  # Alert at 1.5x mega threshold
@@ -216,7 +287,9 @@ class OrderBookAnalyzer:
             # Using numpy for linear regression
             coefficients = np.polyfit(price_distances, sizes, 1)
             slope = coefficients[0]
-        except:
+        except (np.linalg.LinAlgError, ValueError, TypeError) as e:
+            # LinAlgError: Singular matrix, ValueError: empty arrays, TypeError: wrong types
+            logger.debug(f"Failed to calculate slope: {e}")
             slope = 0
             
         return slope

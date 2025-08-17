@@ -42,10 +42,13 @@ class TrackedWhale:
         """Update whale with new observation"""
         now = time.time()
         
-        # Track changes
-        if abs(self.current_size - size) > 0.01:
+        # Track SIGNIFICANT changes only (>5% size change or >0.1% price change)
+        size_change_pct = abs((self.current_size - size) / self.current_size * 100) if self.current_size > 0 else 100
+        price_change_pct = abs((self.current_price - price) / self.current_price * 100) if self.current_price > 0 else 100
+        
+        if size_change_pct > 5.0:  # Only track if size changes by more than 5%
             self.size_changes.append((now, size))
-        if abs(self.current_price - price) > 0.01:
+        if price_change_pct > 0.1:  # Only track if price changes by more than 0.1%
             self.price_moves.append((now, price))
             
         # Update current state
@@ -79,6 +82,9 @@ class WhaleTracker:
         # Active whales by symbol
         self.active_whales: Dict[str, Dict[str, TrackedWhale]] = {}
         
+        # Index for faster lookups: symbol -> side -> list of whale_ids
+        self.whale_index: Dict[str, Dict[str, set]] = {}
+        
         # Recently disappeared whales (might reappear)
         self.recent_whales: Dict[str, List[TrackedWhale]] = {}
         
@@ -107,6 +113,7 @@ class WhaleTracker:
         if symbol not in self.active_whales:
             self.active_whales[symbol] = {}
             self.recent_whales[symbol] = []
+            self.whale_index[symbol] = {'bid': set(), 'ask': set()}
         
         # First check active whales
         whale_id = self._match_active_whale(symbol, side, price, size)
@@ -138,18 +145,32 @@ class WhaleTracker:
     def _match_active_whale(self, symbol: str, side: str, price: float, size: float) -> Optional[str]:
         """Check if matches any active whale"""
         
-        for whale_id, whale in self.active_whales[symbol].items():
-            if whale.side != side:
+        # Use index for faster lookup (O(1) to get relevant whales)
+        if symbol not in self.whale_index or side not in self.whale_index[symbol]:
+            return None
+            
+        # Only check whales with matching side
+        for whale_id in self.whale_index[symbol][side]:
+            whale = self.active_whales[symbol].get(whale_id)
+            if not whale:
                 continue
                 
             # Check price match (within tolerance)
-            price_diff = abs(price - whale.current_price) / whale.current_price
-            if price_diff > self.price_tolerance:
+            if whale.current_price > 0:
+                price_diff = abs(price - whale.current_price) / whale.current_price
+                if price_diff > self.price_tolerance:
+                    continue
+            else:
+                # If current_price is 0, skip this whale
                 continue
                 
             # Check size match (within tolerance)
-            size_diff = abs(size - whale.current_size) / whale.current_size
-            if size_diff > self.size_tolerance:
+            if whale.current_size > 0:
+                size_diff = abs(size - whale.current_size) / whale.current_size
+                if size_diff > self.size_tolerance:
+                    continue
+            else:
+                # If current_size is 0, skip this whale
                 continue
                 
             # Found a match
@@ -172,11 +193,15 @@ class WhaleTracker:
                 continue
                 
             # More lenient matching for reappearing whales
-            price_diff = abs(price - whale.current_price) / whale.current_price
-            size_diff = abs(size - whale.current_size) / whale.current_size
-            
-            if price_diff < self.price_tolerance * 2 and size_diff < self.size_tolerance * 2:
-                return whale.whale_id
+            if whale.current_price > 0 and whale.current_size > 0:
+                price_diff = abs(price - whale.current_price) / whale.current_price
+                size_diff = abs(size - whale.current_size) / whale.current_size
+                
+                if price_diff < self.price_tolerance * 2 and size_diff < self.size_tolerance * 2:
+                    return whale.whale_id
+            else:
+                # Skip if price or size is 0
+                continue
                 
         return None
         
@@ -225,6 +250,9 @@ class WhaleTracker:
         
         # Add to active tracking
         self.active_whales[symbol][whale_id] = whale
+        # Update index for faster lookups
+        if side in self.whale_index[symbol]:
+            self.whale_index[symbol][side].add(whale_id)
         self.total_whales_tracked += 1
         
         logger.debug(f"New whale tracked: {whale_id} - ${value_usd:,.0f} at ${price:,.2f}")
@@ -299,7 +327,14 @@ class WhaleTracker:
             return None
             
         now = time.time()
-        duration = now - whale.first_seen if whale_id in self.active_whales.get(symbol, {}) else whale.total_duration
+        # Calculate total duration including previous appearances
+        if whale_id in self.active_whales.get(symbol, {}):
+            # Currently active: add current session to total
+            current_session = now - whale.first_seen
+            duration = whale.total_duration + current_session
+        else:
+            # Not active: use accumulated total
+            duration = whale.total_duration
         
         return {
             'whale_id': whale.whale_id,
