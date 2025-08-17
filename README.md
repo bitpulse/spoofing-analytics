@@ -82,9 +82,9 @@ whale-analytics-system/
 │   ├── main.py                    # Main orchestrator - runs everything
 │   ├── config.py                  # Configuration loader from .env
 │   ├── thresholds.py             # Trading thresholds per pair
-│   ├── strategy_analyzer.py      # Generates trading signals
-│   ├── backtest_engine.py        # Tests strategies on historical data
-│   ├── realtime_trader.py        # Live trading execution
+│   ├── strategy_analyzer.py      # Analyzes whale patterns & generates signals
+│   ├── backtest_engine.py        # Simulates trading & calculates performance
+│   ├── realtime_trader.py        # Executes live trades with risk management
 │   │
 │   ├── tracking/
 │   │   └── whale_tracker.py      # Detects and tracks whale orders
@@ -200,19 +200,198 @@ Book %: 79.7%
 ⚠️ Dominates order book!
 ```
 
+## 📈 Advanced Trading Modules
+
+### 1. Strategy Analyzer (`src/strategy_analyzer.py`)
+
+**Purpose**: Analyzes whale activity data to generate trading signals using 5 proven strategies.
+
+**Key Features**:
+- Loads whale, price, and spoofing data from CSV files
+- Runs multiple trading strategies in parallel
+- Generates signals with confidence scores (55-85%)
+- Outputs detailed analysis reports
+
+**⚠️ Important Note About Strategies**:
+The system currently uses **pre-defined, rule-based strategies** with fixed thresholds and parameters. Each strategy has hardcoded rules that determine when to generate trading signals based on specific whale patterns and market conditions.
+
+**Strategies Implemented** (Pre-defined with Fixed Rules):
+1. **Mega Whale Reversal** (85% confidence) - Trade opposite to $1M+ orders
+   - Trigger: Orders > $1,000,000 USD
+   - Action: Trade opposite direction (fade the whale)
+2. **Spoofing Detection** (80% confidence) - Trade against fake/manipulative orders
+   - Trigger: Orders that disappear within 60 seconds
+   - Action: Trade opposite to spoof direction
+3. **Whale Accumulation** (75% confidence) - Follow when multiple whales buy
+   - Trigger: 3+ whales with total > $300,000 in 5-minute window
+   - Action: Follow the whale buying pressure
+4. **Wall Fade** (65-70% confidence) - Fade persistent resistance walls
+   - Trigger: Walls > $500,000 lasting > 5 minutes
+   - Action: Trade based on wall persistence
+5. **Imbalance Momentum** (65% confidence) - Trade with order book imbalance
+   - Trigger: Imbalance > 50% with whale presence
+   - Action: Trade with the momentum
+
+**🔧 Future Improvements Needed**:
+- **Parameter Fine-tuning**: The current thresholds (e.g., $1M for mega whale, 60s for spoofing) need optimization based on:
+  - Different market conditions (bull/bear/sideways)
+  - Individual trading pair characteristics
+  - Historical performance data
+  
+- **LLM-Powered Strategy Generation**: Future versions should incorporate:
+  - Machine learning models to analyze historical whale patterns
+  - AI-driven pattern recognition to discover new profitable strategies
+  - Dynamic threshold adjustment based on market conditions
+  - GPT/Claude integration to generate and test new strategy hypotheses from collected data
+
+**Usage**:
+```python
+from src.strategy_analyzer import WhaleStrategyAnalyzer
+
+analyzer = WhaleStrategyAnalyzer(data_dir="data")
+analysis = analyzer.analyze_symbol("WLDUSDT", "2024-01-15")
+
+# Results include:
+# - All generated signals with timestamps
+# - Entry/exit prices and stop losses
+# - Confidence scores and reasoning
+# - Summary statistics
+```
+
+**Run Standalone**:
+```bash
+python -m src.strategy_analyzer
+# Analyzes all configured symbols
+# Saves results to analysis_SYMBOL_DATE.json
+# Prints summary report
+```
+
+### 2. Backtest Engine (`src/backtest_engine.py`)
+
+**Purpose**: Tests trading strategies on historical data to validate performance.
+
+**Key Features**:
+- Simulates realistic trading with position sizing
+- Tracks profit/loss for each trade
+- Calculates comprehensive performance metrics
+- Handles stop losses and take profits automatically
+- Generates detailed performance reports
+
+**Metrics Calculated**:
+- Win rate and profit factor
+- Total PnL and return percentage
+- Sharpe ratio (risk-adjusted returns)
+- Maximum drawdown
+- Average win vs average loss
+- Exit reason breakdown
+
+**Usage**:
+```python
+from src.backtest_engine import BacktestEngine
+
+engine = BacktestEngine(
+    initial_capital=10000,
+    position_size=0.1  # 10% per trade
+)
+
+results = engine.run_backtest(
+    signals=analysis['signals'],
+    symbol="WLDUSDT", 
+    date="2024-01-15"
+)
+
+print(engine.generate_report(results))
+```
+
+**Run Standalone**:
+```bash
+python -m src.backtest_engine
+# Loads signals from strategy analyzer
+# Runs backtest simulation
+# Outputs performance metrics
+# Saves results to backtest_SYMBOL_DATE.json
+```
+
+### 3. Realtime Trader (`src/realtime_trader.py`)
+
+**Purpose**: Executes live trading based on real-time whale signals with risk management.
+
+**Key Features**:
+- Monitors multiple symbols simultaneously
+- Executes trades based on signal confidence
+- Manages positions with stops and targets
+- Enforces risk limits (max positions, daily loss)
+- Sends trading alerts (Telegram integration ready)
+- Saves state for recovery
+
+**Risk Management**:
+```python
+# Default settings (configurable)
+MAX_POSITIONS = 3         # Concurrent trades limit
+POSITION_SIZE = 0.10      # 10% of capital per trade  
+MAX_DAILY_LOSS = 0.05     # Stop at 5% daily loss
+MIN_CONFIDENCE = 0.70     # Minimum signal confidence
+MAX_HOLD_TIME = 3600      # 1 hour max per position
+```
+
+**Position Management**:
+- Automatic stop loss and take profit execution
+- Time-based exits (1 hour maximum)
+- Opposite signal closes existing position
+- Real-time P&L tracking
+
+**Usage**:
+```python
+from src.realtime_trader import RealtimeTrader
+
+trader = RealtimeTrader(
+    capital=10000,
+    position_size=0.1,
+    max_positions=3
+)
+
+# Run async trading loop
+await trader.run(
+    symbols=["WLDUSDT", "SEIUSDT"],
+    update_interval=30  # Check every 30 seconds
+)
+```
+
+**Run Standalone**:
+```bash
+python -m src.realtime_trader
+# Starts real-time trading loop
+# Monitors configured symbols
+# Executes trades automatically
+# Logs to trading.log
+# Saves state to trading_state.json
+```
+
+**Output Files**:
+- `trading.log` - All trading activity and decisions
+- `trading_state.json` - Current positions and performance
+- Telegram alerts (when configured)
+
 ## 📈 Advanced Usage
 
-### Analyze Historical Data
+### Complete Trading Pipeline
 
 ```bash
-# Generate trading signals from collected data
+# Step 1: Collect whale data
+python -m src.main
+# Let it run to collect data...
+
+# Step 2: Analyze data and generate signals
 python -m src.strategy_analyzer
+# Generates: analysis_SYMBOL_DATE.json
 
-# Run backtest on signals
+# Step 3: Backtest the strategies
 python -m src.backtest_engine
+# Shows historical performance
 
-# Start automated trading (paper or real)
+# Step 4: Start live trading (paper first!)
 python -m src.realtime_trader
+# Executes trades based on real-time signals
 ```
 
 ### Access Data Programmatically
