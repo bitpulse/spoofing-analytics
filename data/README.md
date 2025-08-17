@@ -23,12 +23,63 @@ Our system watches the Binance futures order book 10 times per second, identifyi
 
 ```python
 # Every 100ms, our system:
-1. Receives order book update from Binance WebSocket
+1. Receives COMPLETE order book snapshot from Binance WebSocket
 2. Scans all 20 price levels for large orders
 3. If order > threshold ($50K for SEI, $1M for BTC):
    - Assigns unique ID: "SEIUSDT_bid_0.4183_1755440355855"
    - Tracks it until it disappears
-   - Logs significant changes (>5% size change)
+   - Logs ONLY when significant changes occur
+```
+
+#### When Whales Get Logged to CSV:
+
+**A whale gets logged when:**
+1. **First Appearance** - Always logged when first detected
+2. **Size Change >5%** - Only significant changes, not noise
+3. **Price Change >0.1%** - When whale moves to different level
+4. **10 Seconds Pass** - Periodic heartbeat even if unchanged
+
+**A whale does NOT get logged when:**
+- No significant changes (same size/price, <10 seconds)
+- Tiny fluctuations (1-2% changes ignored as noise)
+- High-frequency updates within 1 second
+
+#### Example Timeline:
+```
+T=0.0s:  3 whales detected → All 3 logged (first appearance)
+T=0.1s:  Same 3 whales, no changes → NOTHING logged
+T=0.2s:  Whale A size +6% → Only Whale A logged
+T=10.1s: Same whales → All logged (10-second heartbeat)
+```
+
+#### How We Detect Disappeared Whales:
+
+Every 100ms, Binance sends the COMPLETE order book. We compare:
+- **Previous snapshot**: {Whale_A, Whale_B, Whale_C}
+- **New snapshot**: {Whale_A, Whale_C, Whale_D}
+- **Result**: Whale_B disappeared, Whale_D is new
+
+**Fuzzy Matching** (since Binance doesn't provide order IDs):
+- Price tolerance: ±0.1% (very strict)
+- Size tolerance: ±20% (more lenient)
+- Side must match exactly (bid/ask)
+
+#### Data Structures:
+```python
+# Active whales currently in order book
+active_whales = {
+    'SEIUSDT': {
+        'WHALE_A_ID': TrackedWhale(size=285714, price=0.35, ...),
+        'WHALE_B_ID': TrackedWhale(size=208333, price=0.36, ...)
+    }
+}
+
+# Recently disappeared whales (kept for 5 minutes)
+recent_whales = {
+    'SEIUSDT': [
+        TrackedWhale('WHALE_C_ID', disappeared_at=0.3, ...)
+    ]
+}
 ```
 
 #### What Each Field Tells You:
@@ -56,11 +107,38 @@ Our system watches the Binance futures order book 10 times per second, identifyi
 ```
 **Translation:** "At 19:07:02, a $62,911 buy order appeared at $0.3525, representing 7.2% of the order book. It's been active for 42.5 seconds with 3 size changes."
 
+#### Whale Lifecycle Tracking:
+
+```python
+# 1. Whale appears at T=0
+Whale_A appears → Log to CSV: "NEW,$100K,0.35,T=0"
+
+# 2. Updates at T=0.1, T=0.2 (no changes)
+Whale_A unchanged → NO CSV entries (saves storage)
+
+# 3. Size change at T=2.5
+Whale_A size→$105K → Log to CSV: "UPDATE,$105K,0.35,T=2.5"
+
+# 4. Disappears at T=5.0
+Whale_A missing from snapshot → 
+  - Remove from active_whales
+  - Add to recent_whales (5-min memory)
+  - If duration <60s → Log to spoofing CSV
+  - NO entry in whales CSV (we don't log absence)
+
+# 5. Reappears at T=5.5 (flickering)
+Whale_A detected again →
+  - Move from recent_whales back to active_whales
+  - Increment disappearances counter
+  - Log to CSV: "REAPPEARED,$105K,0.35,T=5.5,disappearances=1"
+```
+
 #### Trading Value:
 - **Identify Real Support:** Orders lasting >60 seconds are likely real
 - **Spot Manipulation:** Rapid size changes indicate bots
 - **Time Entries:** Track when whales accumulate
 - **Risk Assessment:** High whale activity = potential volatility
+- **Reduce Noise:** 90% fewer logs while capturing all significant events
 
 ---
 
@@ -300,6 +378,9 @@ From analyzing SEIUSDT:
 | **File size** | 100MB/hour | 10MB/hour |
 | **Signal-to-noise** | 10% | 90% |
 | **Storage needs** | 2.4GB/day | 240MB/day |
+| **Logging frequency** | Every 100ms | Only on changes |
+| **CSV entries** | 500,000+/hour | 47,774/hour |
+| **Duplicate spoofs** | 2,269 per event | 0 (deduplicated) |
 
 ---
 
