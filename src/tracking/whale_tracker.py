@@ -42,10 +42,13 @@ class TrackedWhale:
         """Update whale with new observation"""
         now = time.time()
         
-        # Track changes
-        if abs(self.current_size - size) > 0.01:
+        # Track SIGNIFICANT changes only (>5% size change or >0.1% price change)
+        size_change_pct = abs((self.current_size - size) / self.current_size * 100) if self.current_size > 0 else 100
+        price_change_pct = abs((self.current_price - price) / self.current_price * 100) if self.current_price > 0 else 100
+        
+        if size_change_pct > 5.0:  # Only track if size changes by more than 5%
             self.size_changes.append((now, size))
-        if abs(self.current_price - price) > 0.01:
+        if price_change_pct > 0.1:  # Only track if price changes by more than 0.1%
             self.price_moves.append((now, price))
             
         # Update current state
@@ -299,7 +302,14 @@ class WhaleTracker:
             return None
             
         now = time.time()
-        duration = now - whale.first_seen if whale_id in self.active_whales.get(symbol, {}) else whale.total_duration
+        # Calculate total duration including previous appearances
+        if whale_id in self.active_whales.get(symbol, {}):
+            # Currently active: add current session to total
+            current_session = now - whale.first_seen
+            duration = whale.total_duration + current_session
+        else:
+            # Not active: use accumulated total
+            duration = whale.total_duration
         
         return {
             'whale_id': whale.whale_id,
