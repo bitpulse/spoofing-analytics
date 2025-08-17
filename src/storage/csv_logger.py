@@ -121,27 +121,29 @@ class CSVLogger:
             dir_path.mkdir(parents=True, exist_ok=True)
             
     def get_filename(self, data_type: str, symbol: str = None) -> Path:
-        """Generate filename for current date - organized by symbol"""
-        today = date.today().strftime("%Y-%m-%d")
+        """Generate filename with hourly rotation - organized by symbol"""
+        # Use hourly rotation for better data management
+        now = datetime.now()
+        date_hour = now.strftime("%Y-%m-%d_%H")  # Format: 2025-08-17_18
         
         if data_type == "whales" and symbol:
             # Create per-symbol subdirectory
             symbol_dir = self.base_dir / "whales" / symbol
             symbol_dir.mkdir(parents=True, exist_ok=True)
-            return symbol_dir / f"{symbol}_whales_{today}.csv"
+            return symbol_dir / f"{symbol}_whales_{date_hour}.csv"
         elif data_type == "spoofing" and symbol:
             # Create per-symbol subdirectory
             symbol_dir = self.base_dir / "spoofing" / symbol
             symbol_dir.mkdir(parents=True, exist_ok=True)
-            return symbol_dir / f"{symbol}_spoofing_{today}.csv"
+            return symbol_dir / f"{symbol}_spoofing_{date_hour}.csv"
         elif data_type == "snapshots" and symbol:
             # Create per-symbol subdirectory
             symbol_dir = self.base_dir / "snapshots" / symbol
             symbol_dir.mkdir(parents=True, exist_ok=True)
-            return symbol_dir / f"{symbol}_snapshots_{today}.csv"
+            return symbol_dir / f"{symbol}_snapshots_{date_hour}.csv"
         else:
             # Fallback for any other type
-            return self.base_dir / f"{data_type}_{today}.csv"
+            return self.base_dir / f"{data_type}_{date_hour}.csv"
             
     def log_whale(self, event: WhaleEvent):
         """Log a whale order event"""

@@ -21,15 +21,25 @@ import sys
 
 def analyze_whales_correctly(symbol="SEIUSDT"):
     """Analyze whale data with proper deduplication"""
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    # Try to load hourly files first, then fall back to daily
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d")
+    date_hour_str = now.strftime("%Y-%m-%d_%H")
     
     print(f"\n{'='*70}")
-    print(f"📊 CORRECTED Analysis for {symbol} - {datetime.now().strftime('%H:%M:%S')}")
+    print(f"📊 CORRECTED Analysis for {symbol} - {now.strftime('%H:%M:%S')}")
     print(f"{'='*70}\n")
     
-    # Load data
-    whale_file = Path(f"data/whales/{symbol}/{symbol}_whales_{date_str}.csv")
-    spoof_file = Path(f"data/spoofing/{symbol}/{symbol}_spoofing_{date_str}.csv")
+    # Try hourly format first (new), then daily format (old)
+    whale_file = Path(f"data/whales/{symbol}/{symbol}_whales_{date_hour_str}.csv")
+    if not whale_file.exists():
+        # Try daily format for backward compatibility
+        whale_file = Path(f"data/whales/{symbol}/{symbol}_whales_{date_str}.csv")
+    
+    spoof_file = Path(f"data/spoofing/{symbol}/{symbol}_spoofing_{date_hour_str}.csv")
+    if not spoof_file.exists():
+        # Try daily format for backward compatibility
+        spoof_file = Path(f"data/spoofing/{symbol}/{symbol}_spoofing_{date_str}.csv")
     
     if not whale_file.exists():
         print("❌ No whale data found")
