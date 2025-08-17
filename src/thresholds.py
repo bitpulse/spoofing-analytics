@@ -70,11 +70,19 @@ PAIR_THRESHOLDS = {
     
     # === CATEGORY 1: EXTREME MANIPULATION - MEME COINS ===
     # Research shows meme coins are most susceptible to pump & dump schemes
-    "PEPEUSDT": {
+    "1000PEPEUSDT": {
         "whale": 25000,  # $25K - Ultra high manipulation, low liquidity
         "mega_whale": 125000  # $125K
     },
-    "BONKUSDT": {
+    "PEPEUSDT": {  # Keep for compatibility
+        "whale": 25000,  # $25K - Ultra high manipulation, low liquidity
+        "mega_whale": 125000  # $125K
+    },
+    "1000BONKUSDT": {
+        "whale": 20000,  # $20K - Most volatile per 2025 data
+        "mega_whale": 100000  # $100K
+    },
+    "BONKUSDT": {  # Keep for compatibility
         "whale": 20000,  # $20K - Most volatile per 2025 data
         "mega_whale": 100000  # $100K
     },
