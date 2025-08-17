@@ -30,11 +30,16 @@ class OrderBookAnalyzer:
         self.whale_tracker = WhaleTracker()
         
         # Track which spoofs have already been logged to prevent duplicates
-        self.logged_spoofs = set()
+        # Use a deque with max size to automatically limit memory usage
+        from collections import deque
+        self.logged_spoofs = deque(maxlen=10000)  # Keep last 10k spoofs
+        self.logged_spoofs_set = set()  # For O(1) lookups
         self.last_spoof_clear_time = None
         
         # Track last logged state for each whale to avoid redundant logging
+        # Use LRU-like approach with deque
         self.last_logged_whale_state = {}  # whale_id -> (size, price, value_usd, timestamp)
+        self.whale_state_order = deque(maxlen=5000)  # Track order for LRU cleanup
         self.min_log_interval = 1.0  # Minimum seconds between logs for same whale
         self.min_size_change_pct = 5.0  # Minimum % size change to log
         
@@ -55,16 +60,28 @@ class OrderBookAnalyzer:
     def analyze_snapshot(self, snapshot: OrderBookSnapshot) -> OrderBookSnapshot:
         """Perform complete analysis on order book snapshot"""
         
-        # Clear logged spoofs and whale states daily to prevent memory issues
+        # Periodically clear old entries (every hour instead of daily)
         from datetime import datetime, timedelta
         now = datetime.now()
         if self.last_spoof_clear_time is None:
             self.last_spoof_clear_time = now
-        elif (now - self.last_spoof_clear_time) > timedelta(hours=24):
-            logger.info(f"Clearing logged spoofs set (had {len(self.logged_spoofs)} entries)")
-            logger.info(f"Clearing whale state cache (had {len(self.last_logged_whale_state)} entries)")
-            self.logged_spoofs.clear()
-            self.last_logged_whale_state.clear()
+        elif (now - self.last_spoof_clear_time) > timedelta(hours=1):
+            # Clean up logged_spoofs_set if it grows too large
+            if len(self.logged_spoofs_set) > 10000:
+                # Keep only the most recent spoofs
+                self.logged_spoofs_set = set(list(self.logged_spoofs)[-5000:])
+                logger.info(f"Cleaned logged_spoofs_set, kept 5000 most recent")
+            
+            # Clean up whale state if too large
+            if len(self.last_logged_whale_state) > 5000:
+                # Keep only the most recent whale states
+                keep_ids = set(list(self.whale_state_order)[-2500:])
+                self.last_logged_whale_state = {
+                    k: v for k, v in self.last_logged_whale_state.items() 
+                    if k in keep_ids
+                }
+                logger.info(f"Cleaned whale state cache, kept 2500 most recent")
+            
             self.last_spoof_clear_time = now
         
         # Detect whale orders with tracking
@@ -95,9 +112,10 @@ class OrderBookAnalyzer:
                     spoof_key = f"{snapshot.symbol}_{whale_id.whale_id}"
                     
                     # Only log if we haven't logged this spoof before
-                    if spoof_key not in self.logged_spoofs:
+                    if spoof_key not in self.logged_spoofs_set:
                         self.csv_logger.log_spoofing_from_dict(whale_summary)
-                        self.logged_spoofs.add(spoof_key)
+                        self.logged_spoofs.append(spoof_key)  # Add to deque
+                        self.logged_spoofs_set.add(spoof_key)  # Add to set for lookups
                         logger.info(f"Logged new spoof: {whale_id.whale_id[:50]}...")
         
         # Calculate whale imbalance

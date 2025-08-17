@@ -22,8 +22,10 @@ class WhaleAnalyticsSystem:
         self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager)
         self.storage = MemoryStore()
         
-        # Initialize price collectors for each symbol
+        # Initialize price collectors for each symbol with thread safety
+        import threading
         self.price_collectors: Dict[str, PriceCollector] = {}
+        self.price_collectors_lock = threading.Lock()
         
         # Track previous update IDs for gap detection
         self.previous_update_ids: Dict[str, int] = {}
@@ -89,11 +91,11 @@ class WhaleAnalyticsSystem:
             # Store in memory
             self.storage.store_snapshot(analyzed_snapshot)
             
-            # Collect and save price data every second
-            if symbol not in self.price_collectors:
-                self.price_collectors[symbol] = PriceCollector(symbol)
-            
-            price_collector = self.price_collectors[symbol]
+            # Collect and save price data every second (with thread safety)
+            with self.price_collectors_lock:
+                if symbol not in self.price_collectors:
+                    self.price_collectors[symbol] = PriceCollector(symbol)
+                price_collector = self.price_collectors[symbol]
             
             # Collect price data (now synchronous)
             price_data = price_collector.collect_price_data(
