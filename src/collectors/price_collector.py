@@ -101,15 +101,18 @@ class PriceCollector:
         if len(self.price_history) > 0:
             current_price = mid_price
             if len(self.price_history) >= 60:  # 1 minute of data
-                price_1min_ago = self.price_history[-60]
+                # Convert deque to list for indexing
+                price_list = list(self.price_history)
+                price_1min_ago = price_list[-60]
                 price_change_1min = ((current_price - price_1min_ago) / price_1min_ago) * 100
             
             if len(self.price_history) >= 300:  # 5 minutes
-                price_5min_ago = self.price_history[-300]
+                price_list = list(self.price_history)
+                price_5min_ago = price_list[-300]
                 price_change_5min = ((current_price - price_5min_ago) / price_5min_ago) * 100
                 
                 # Calculate 5-minute high/low
-                recent_5min = self.price_history[-300:]
+                recent_5min = list(self.price_history)[-300:]
                 high_5min = max(recent_5min)
                 low_5min = min(recent_5min)
             else:
