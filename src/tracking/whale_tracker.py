@@ -146,13 +146,21 @@ class WhaleTracker:
                 continue
                 
             # Check price match (within tolerance)
-            price_diff = abs(price - whale.current_price) / whale.current_price
-            if price_diff > self.price_tolerance:
+            if whale.current_price > 0:
+                price_diff = abs(price - whale.current_price) / whale.current_price
+                if price_diff > self.price_tolerance:
+                    continue
+            else:
+                # If current_price is 0, skip this whale
                 continue
                 
             # Check size match (within tolerance)
-            size_diff = abs(size - whale.current_size) / whale.current_size
-            if size_diff > self.size_tolerance:
+            if whale.current_size > 0:
+                size_diff = abs(size - whale.current_size) / whale.current_size
+                if size_diff > self.size_tolerance:
+                    continue
+            else:
+                # If current_size is 0, skip this whale
                 continue
                 
             # Found a match
@@ -175,11 +183,15 @@ class WhaleTracker:
                 continue
                 
             # More lenient matching for reappearing whales
-            price_diff = abs(price - whale.current_price) / whale.current_price
-            size_diff = abs(size - whale.current_size) / whale.current_size
-            
-            if price_diff < self.price_tolerance * 2 and size_diff < self.size_tolerance * 2:
-                return whale.whale_id
+            if whale.current_price > 0 and whale.current_size > 0:
+                price_diff = abs(price - whale.current_price) / whale.current_price
+                size_diff = abs(size - whale.current_size) / whale.current_size
+                
+                if price_diff < self.price_tolerance * 2 and size_diff < self.size_tolerance * 2:
+                    return whale.whale_id
+            else:
+                # Skip if price or size is 0
+                continue
                 
         return None
         

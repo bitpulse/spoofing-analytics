@@ -63,9 +63,10 @@ class PriceCollector:
         self.data_dir = Path(f"data/prices/{symbol}")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Rolling windows for calculations
-        self.price_history = []  # Last 3600 prices (1 hour at 1s intervals)
-        self.trade_history = []  # Last 300 trades
+        # Rolling windows for calculations (using deque for automatic size management)
+        from collections import deque
+        self.price_history = deque(maxlen=3600)  # Last 3600 prices (1 hour at 1s intervals)
+        self.trade_history = deque(maxlen=300)  # Last 300 trades
         self.last_save_time = time.time()
         
         # CSV file management
@@ -158,10 +159,8 @@ class PriceCollector:
             liquidations_5min=0  # Would come from liquidation stream
         )
         
-        # Update history
+        # Update history (deque handles size limit automatically)
         self.price_history.append(mid_price)
-        if len(self.price_history) > 3600:  # Keep last hour
-            self.price_history.pop(0)
         
         return price_data
     

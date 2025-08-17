@@ -288,7 +288,9 @@ class OrderBookAnalyzer:
             # Using numpy for linear regression
             coefficients = np.polyfit(price_distances, sizes, 1)
             slope = coefficients[0]
-        except:
+        except (np.linalg.LinAlgError, ValueError, TypeError) as e:
+            # LinAlgError: Singular matrix, ValueError: empty arrays, TypeError: wrong types
+            logger.debug(f"Failed to calculate slope: {e}")
             slope = 0
             
         return slope
