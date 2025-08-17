@@ -7,6 +7,7 @@ from typing import Dict, Any
 
 from src.config import config
 from src.collectors.websocket_manager import BinanceWebSocketManager
+from src.collectors.price_collector import PriceCollector
 from src.models.order_book import OrderBookSnapshot
 from src.analyzers.order_book_analyzer import OrderBookAnalyzer
 from src.storage.memory_store import MemoryStore
@@ -20,6 +21,9 @@ class WhaleAnalyticsSystem:
         self.telegram_manager = TelegramAlertManager() if config.telegram_alerts_enabled else None
         self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager)
         self.storage = MemoryStore()
+        
+        # Initialize price collectors for each symbol
+        self.price_collectors: Dict[str, PriceCollector] = {}
         
         # Track previous update IDs for gap detection
         self.previous_update_ids: Dict[str, int] = {}
@@ -84,6 +88,23 @@ class WhaleAnalyticsSystem:
             
             # Store in memory
             self.storage.store_snapshot(analyzed_snapshot)
+            
+            # Collect and save price data every second
+            if symbol not in self.price_collectors:
+                self.price_collectors[symbol] = PriceCollector(symbol)
+            
+            price_collector = self.price_collectors[symbol]
+            
+            # Collect price data (now synchronous)
+            price_data = price_collector.collect_price_data(
+                analyzed_snapshot, 
+                self.analyzer.whale_tracker
+            )
+            
+            # Save price data if it's been at least 1 second
+            if price_collector.should_save():
+                price_collector.save_price_data(price_data)
+                logger.debug(f"Saved price data for {symbol}")
             
             # Check for whale changes (spoofing detection)
             if self.telegram_manager:

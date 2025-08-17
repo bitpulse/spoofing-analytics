@@ -198,13 +198,15 @@ Whale_A detected again →
 #### Collection Process:
 
 ```python
-# Every 60 seconds:
+# Every 60 seconds (600 WebSocket updates at 100ms):
 1. Calculate market metrics
 2. Count active whales
 3. Measure imbalances
 4. Identify key levels
-5. Save comprehensive snapshot
+5. Save comprehensive snapshot including PRICE DATA
 ```
+
+**Note:** Snapshots contain price data sampled every minute. For higher resolution (1-second) price data with more metrics, see the new `data/prices/` directory below.
 
 #### Snapshot Metrics Explained:
 
@@ -233,6 +235,96 @@ Whale_A detected again →
 **Purpose:** Long-term storage for backtesting and pattern analysis
 
 **Compression:** ~10:1 ratio (1GB → 100MB)
+
+---
+
+### 5. `data/prices/` - Price & Volume Data (ACTIVE) 💹
+
+**What It Contains:** Comprehensive price and volume data collected every second for correlation analysis
+
+**File Format:** `SEIUSDT_prices_2025-08-17_18.csv` (hourly rotation like other data)
+
+#### Collection Process:
+
+```python
+# Every second, we save:
+1. Price data from order book (bid, ask, mid prices)
+2. Rolling price changes (1min, 5min, 1hr)
+3. 5-minute high/low prices
+4. Whale correlation metrics
+5. Market microstructure data
+```
+
+#### Price Data Fields Collected:
+
+| Field | Description | Update Frequency |
+|-------|-------------|------------------|
+| `timestamp` | ISO format timestamp | Every second |
+| `symbol` | Trading pair (e.g., SEIUSDT) | Every second |
+| **Price Fields** | | |
+| `last_price` | Mid price as proxy for last trade | Every second |
+| `mark_price` | Mark price (futures) | Every second |
+| `index_price` | Index price | Every second |
+| `bid_price` | Best bid price | Every second |
+| `ask_price` | Best ask price | Every second |
+| `mid_price` | (bid + ask) / 2 | Every second |
+| **Volume Fields** | | |
+| `volume_24h` | 24-hour volume | From API (when integrated) |
+| `volume_usd_24h` | 24-hour USD volume | From API (when integrated) |
+| `trade_count_24h` | 24-hour trade count | From API (when integrated) |
+| `buy_volume_5min` | 5-minute buy volume | Calculated |
+| `sell_volume_5min` | 5-minute sell volume | Calculated |
+| `trade_count_5min` | Recent trade count | From history |
+| **Price Changes** | | |
+| `price_change_1min` | % change from 1 minute ago | Calculated |
+| `price_change_5min` | % change from 5 minutes ago | Calculated |
+| `price_change_1h` | % change from 1 hour ago | Calculated |
+| `high_5min` | Highest price in 5 minutes | Calculated |
+| `low_5min` | Lowest price in 5 minutes | Calculated |
+| **Whale Correlation** | | |
+| `active_whale_count` | Current active whales | From whale tracker |
+| `recent_spoof_count` | Spoofs in last 5 minutes | From spoofing data |
+| `whale_bid_value` | Total USD value of bid whales | Real-time |
+| `whale_ask_value` | Total USD value of ask whales | Real-time |
+| **Market Metrics** | | |
+| `funding_rate` | Perpetual funding rate | From API (when integrated) |
+| `open_interest` | Open interest | From API (when integrated) |
+| `liquidations_5min` | Recent liquidation volume | From stream (when integrated) |
+
+#### Implementation Details:
+
+The PriceCollector class (src/collectors/price_collector.py) is integrated into the main processing loop:
+- Maintains rolling 1-hour price history (3600 data points)
+- Calculates price changes across multiple timeframes
+- Tracks 5-minute high/low prices
+- Integrates whale activity metrics for correlation
+- Saves data every second (configurable)
+
+#### Critical for Analysis:
+
+- **Whale Impact**: Measure exact price movements after whale appearances
+- **Spoof Effectiveness**: Quantify if fake walls actually move prices
+- **Manipulation Patterns**: Identify price pumps following fake orders
+- **Entry Timing**: Find optimal entry points during low manipulation
+- **Stop Loss Levels**: Calculate volatility during high spoofing periods
+
+#### Example Correlations Now Possible:
+
+```python
+# With actual price data being collected:
+"When whale bid appears > $100K → Price rises 61% of time within 5 min"
+"Spoofing events → Average volatility increase of 2.3x"
+"Real whale accumulation → Price support holds 73% of time"
+"Flickering whales → Price reversal within 10 minutes 68% of time"
+```
+
+#### Trading Applications:
+
+1. **Backtest Strategies**: Use historical price + whale data
+2. **Real-time Signals**: Correlate current whales with price action
+3. **Risk Management**: Adjust position sizing based on manipulation levels
+4. **Market Making**: Identify safe periods for providing liquidity
+5. **Trend Following**: Distinguish real vs fake breakouts
 
 ---
 
