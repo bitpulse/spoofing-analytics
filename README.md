@@ -10,7 +10,7 @@ A sophisticated cryptocurrency trading system that detects and analyzes large or
 - **Tracks** large orders (>$50,000) and mega whales (>$250,000)
 - **Detects** market manipulation patterns (spoofing, fake walls)
 - **Generates** trading signals with 55-85% confidence rates
-- **Executes** automated trades based on 5 proven strategies
+- **Generates** trading signals based on 5 proven strategies
 - **Alerts** via Telegram when opportunities arise
 - **Stores** all data in CSV format for analysis
 
@@ -84,7 +84,6 @@ whale-analytics-system/
 │   ├── thresholds.py             # Trading thresholds per pair
 │   ├── strategy_analyzer.py      # Analyzes whale patterns & generates signals
 │   ├── backtest_engine.py        # Simulates trading & calculates performance
-│   ├── realtime_trader.py        # Executes live trades with risk management
 │   │
 │   ├── tracking/
 │   │   └── whale_tracker.py      # Detects and tracks whale orders
@@ -319,66 +318,6 @@ python -m src.backtest_engine
 # Saves results to backtest_SYMBOL_DATE.json
 ```
 
-### 3. Realtime Trader (`src/realtime_trader.py`)
-
-**Purpose**: Executes live trading based on real-time whale signals with risk management.
-
-**Key Features**:
-- Monitors multiple symbols simultaneously
-- Executes trades based on signal confidence
-- Manages positions with stops and targets
-- Enforces risk limits (max positions, daily loss)
-- Sends trading alerts (Telegram integration ready)
-- Saves state for recovery
-
-**Risk Management**:
-```python
-# Default settings (configurable)
-MAX_POSITIONS = 3         # Concurrent trades limit
-POSITION_SIZE = 0.10      # 10% of capital per trade  
-MAX_DAILY_LOSS = 0.05     # Stop at 5% daily loss
-MIN_CONFIDENCE = 0.70     # Minimum signal confidence
-MAX_HOLD_TIME = 3600      # 1 hour max per position
-```
-
-**Position Management**:
-- Automatic stop loss and take profit execution
-- Time-based exits (1 hour maximum)
-- Opposite signal closes existing position
-- Real-time P&L tracking
-
-**Usage**:
-```python
-from src.realtime_trader import RealtimeTrader
-
-trader = RealtimeTrader(
-    capital=10000,
-    position_size=0.1,
-    max_positions=3
-)
-
-# Run async trading loop
-await trader.run(
-    symbols=["WLDUSDT", "SEIUSDT"],
-    update_interval=30  # Check every 30 seconds
-)
-```
-
-**Run Standalone**:
-```bash
-python -m src.realtime_trader
-# Starts real-time trading loop
-# Monitors configured symbols
-# Executes trades automatically
-# Logs to trading.log
-# Saves state to trading_state.json
-```
-
-**Output Files**:
-- `trading.log` - All trading activity and decisions
-- `trading_state.json` - Current positions and performance
-- Telegram alerts (when configured)
-
 ## 📈 Advanced Usage
 
 ### Complete Trading Pipeline
@@ -395,10 +334,6 @@ python -m src.strategy_analyzer
 # Step 3: Backtest the strategies
 python -m src.backtest_engine
 # Shows historical performance
-
-# Step 4: Start live trading (paper first!)
-python -m src.realtime_trader
-# Executes trades based on real-time signals
 ```
 
 ### Access Data Programmatically
@@ -455,14 +390,14 @@ To customize for your needs:
 2. Modify `STRATEGY_CONFIG` to tune strategy parameters
 3. Add new pairs using existing ones as templates
 
-### Risk Management (src/realtime_trader.py)
+### Risk Management
 
 ```python
-# Trading parameters
+# Recommended parameters for manual trading
 POSITION_SIZE = 0.10      # Use 10% of capital per trade
 MAX_POSITIONS = 3         # Maximum concurrent positions
 MAX_DAILY_LOSS = 0.05    # Stop trading after 5% loss
-MIN_CONFIDENCE = 0.70    # Minimum signal confidence
+MIN_CONFIDENCE = 0.70    # Only trade signals with >70% confidence
 ```
 
 ## 📊 Performance Monitoring
@@ -482,13 +417,13 @@ Alerts Throttled: 892
 ━━━━━━━━━━━━━━━━
 ```
 
-### Trading Performance
+### Analysis Performance
 
-Check trading state:
+Check analysis results:
 
 ```bash
-cat trading_state.json  # Current positions and P&L
-tail -f trading.log     # Real-time trading activity
+cat analysis_SYMBOL_DATE.json  # View generated signals
+cat backtest_SYMBOL_DATE.json  # View backtest results
 ```
 
 ## 🛠 Troubleshooting
