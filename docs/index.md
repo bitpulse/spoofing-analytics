@@ -28,7 +28,7 @@
 ```
 whale-analytics-system/
 ├── src/                    # Source code
-│   ├── main.py            # Entry point
+│   ├── whale_monitor.py   # Real-time whale monitoring & data collection
 │   ├── collectors/        # WebSocket management
 │   ├── analyzers/         # Order book analysis
 │   ├── tracking/          # Whale tracking
@@ -80,7 +80,7 @@ Based on PROVEN fake orders, not speculation:
 
 ### Start Monitoring
 ```bash
-python -m src.main
+python -m src.whale_monitor
 ```
 
 ### Analyze Data

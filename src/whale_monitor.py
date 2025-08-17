@@ -1,3 +1,24 @@
+"""
+🐋 Whale Monitor - Real-time Cryptocurrency Whale Activity Tracker
+================================================================
+
+This module continuously monitors Binance order books to detect and track whale orders
+(large trades that can move the market). It performs the following tasks:
+
+1. Connects to Binance WebSocket streams for real-time order book data
+2. Identifies whale orders based on configurable thresholds (e.g., >$50K)
+3. Tracks whale order lifecycle (appear, persist, disappear)
+4. Detects market manipulation patterns (spoofing, fake walls)
+5. Saves all data to CSV files for analysis
+6. Sends Telegram alerts for significant whale activity
+
+Usage:
+    python -m src.whale_monitor
+
+The system will run continuously until stopped with Ctrl+C.
+All collected data is saved to the data/ directory.
+"""
+
 import asyncio
 import signal
 import sys

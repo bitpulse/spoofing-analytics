@@ -250,7 +250,7 @@ cp .env.example .env
 # Edit .env with your settings
 
 # Run system
-python -m src.main
+python -m src.whale_monitor
 ```
 
 ### Monitoring

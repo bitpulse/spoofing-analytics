@@ -297,5 +297,5 @@ class PriceCollector:
             logger.info(f"Created price impact file: {impact_file}")
 
 
-# Note: Integration is now done directly in src/main.py
+# Note: Integration is now done directly in src/whale_monitor.py
 # The PriceCollector is instantiated per symbol and called synchronously

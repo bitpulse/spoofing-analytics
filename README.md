@@ -64,7 +64,7 @@ CSV_ROTATION_HOURS=1 # Create new CSV file every hour
 
 ```bash
 # Start whale monitoring (data collection + alerts)
-python -m src.main
+python -m src.whale_monitor
 
 # The system will:
 # 1. Connect to Binance WebSocket streams
@@ -79,7 +79,7 @@ python -m src.main
 ```
 whale-analytics-system/
 ├── src/
-│   ├── main.py                    # Main orchestrator - runs everything
+│   ├── whale_monitor.py           # Real-time whale monitoring & data collection
 │   ├── config.py                  # Configuration loader from .env
 │   ├── thresholds.py             # Trading thresholds per pair
 │   ├── strategy_analyzer.py      # Analyzes whale patterns & generates signals
@@ -324,7 +324,7 @@ python -m src.backtest_engine
 
 ```bash
 # Step 1: Collect whale data
-python -m src.main
+python -m src.whale_monitor
 # Let it run to collect data...
 
 # Step 2: Analyze data and generate signals
