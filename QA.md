@@ -35,6 +35,7 @@ Imbalance = (Bid Volume - Ask Volume) / Total Volume
 ### Visual Examples
 
 #### Balanced Order Book (0% imbalance)
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ASKS (Sellers) | $500,000 total
@@ -52,6 +53,7 @@ BIDS (Buyers)  | $500,000 total
 ```
 
 #### Imbalanced Order Book (80% positive)
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ASKS (Sellers) | $100,000 total
@@ -71,18 +73,21 @@ BIDS (Buyers)  | $900,000 total
 ### What Imbalances Mean
 
 #### 1. High Positive Imbalance (>70%)
+
 - Heavy buying pressure
 - More people want to buy than sell
 - Price likely to go **UP** ↗️
 - Can indicate accumulation
 
 #### 2. High Negative Imbalance (<-70%)
+
 - Heavy selling pressure
 - More people want to sell than buy
 - Price likely to go **DOWN** ↘️
 - Can indicate distribution
 
 #### 3. Balanced (-20% to +20%)
+
 - Normal market conditions
 - No clear directional pressure
 - Price relatively stable
@@ -90,11 +95,13 @@ BIDS (Buyers)  | $900,000 total
 ### Real-World Interpretation
 
 #### Example 1: 85% Positive Imbalance
+
 - $850,000 in buy orders vs $150,000 in sell orders
 - **Meaning**: Strong support below, buyers are aggressive
 - **BUT**: Could be fake walls to pump price
 
 #### Example 2: -90% Negative Imbalance
+
 - $100,000 in buy orders vs $900,000 in sell orders
 - **Meaning**: Heavy resistance above, sellers dominating
 - **BUT**: Could be spoofing to suppress price
@@ -114,3 +121,41 @@ BIDS (Buyers)  | $900,000 total
 - Context matters (news, time of day, overall trend)
 
 > **Note**: The system now only alerts on extreme imbalances (>85%) after a warmup period - these are more likely to be significant rather than normal market noise.
+
+# Agents
+
+## Whale Detector Agent
+
+### Ask: "Are there whales manipulating ARBUSDT?"
+
+### Agent will:
+
+- Load your CSV data
+- Calculate manipulation score (spoofs/total whales)
+- Identify specific spoofing patterns
+- Provide evidence with timestamps
+- Recommend if it's safe to trade
+
+## Order Book Analyzer Agent
+
+### Ask: "Analyze the order book dynamics"
+
+### Agent will:
+
+- Calculate bid-ask spreads
+- Detect liquidity imbalances
+- Identify support/resistance levels
+- Find hidden icebergs
+- Assess market quality
+
+## Manipulation Strategist Agent
+
+### Ask: "Create a strategy for high manipulation markets"
+
+### Agent will:
+
+- Generate anti-manipulation strategies
+- Provide backtesting code
+- Calculate position sizing based on manipulation
+- Identify optimal entry/exit points
+- Create risk management rules
