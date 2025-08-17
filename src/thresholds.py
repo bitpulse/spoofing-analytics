@@ -243,3 +243,50 @@ def get_alert_threshold(symbol: str) -> float:
     """
     thresholds = get_thresholds(symbol)
     return thresholds["mega_whale"] * 1.5
+
+# Strategy-specific configuration
+STRATEGY_CONFIG = {
+    "spoofing_detection": {
+        "duration_threshold": 60,  # Orders that disappear within 60 seconds
+        "confidence": 0.8
+    },
+    "wall_fade": {
+        "book_percentage": 50,  # Walls that dominate >50% of book
+        "quick_disappear": 60,  # Spoofing if disappears in 60s
+        "persistent_time": 300,  # Persistent if lasts >5 minutes
+        "confidence_spoof": 0.7,
+        "confidence_persistent": 0.6
+    },
+    "whale_accumulation": {
+        "min_whale_count": 3,  # Need at least 3 whales
+        "time_window": 5,  # Within 5 minute window
+        "avg_book_percentage": 20,  # Average >20% of book
+        "confidence": 0.75
+    },
+    "imbalance_momentum": {
+        "imbalance_threshold": 0.5,  # >50% imbalance
+        "time_window": 1,  # Check whale presence within 1 minute
+        "confidence": 0.65
+    },
+    "mega_whale_reversal": {
+        "confidence": 0.85
+    },
+    # Trading parameters
+    "position_sizing": {
+        "target_gain": 0.02,  # 2% default target
+        "stop_loss": 0.02,    # 2% default stop
+        "max_hold_time": 3600  # 1 hour max hold
+    }
+}
+
+def get_strategy_config(strategy_name: str) -> dict:
+    """
+    Get configuration for a specific trading strategy.
+    
+    Args:
+        strategy_name: Name of the strategy
+    
+    Returns:
+        Strategy configuration dictionary
+    """
+    return STRATEGY_CONFIG.get(strategy_name, {}).copy()

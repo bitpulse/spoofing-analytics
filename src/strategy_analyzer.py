@@ -9,7 +9,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
+from thresholds import get_thresholds, get_strategy_config
 
 
 @dataclass
@@ -49,6 +50,8 @@ class WhaleStrategyAnalyzer:
             'imbalance_momentum': self.imbalance_momentum_strategy,
             'mega_whale_reversal': self.mega_whale_reversal_strategy
         }
+        # Cache for thresholds per symbol
+        self.symbol_thresholds = {}
         
     def load_data(self, symbol: str, date: str, hour: Optional[int] = None) -> Dict[str, pd.DataFrame]:
         """Load all data types for a symbol"""
@@ -95,7 +98,7 @@ class WhaleStrategyAnalyzer:
     def wall_fade_strategy(self, data: Dict[str, pd.DataFrame]) -> List[TradingSignal]:
         """
         Strategy: Fade large sell walls that appear as resistance
-        Logic: When mega whale sell walls appear (>$500k, >50% of book), 
+        Logic: When mega whale sell walls appear (>mega_whale/2, >50% of book), 
                price often tests them. If wall disappears quickly, it was likely spoofing.
                Trade opposite direction of persistent walls.
         """
@@ -107,10 +110,23 @@ class WhaleStrategyAnalyzer:
         whales_df = data['whales']
         prices_df = data['prices']
         
+        # Get symbol from data
+        if whales_df.empty:
+            return signals
+        symbol = whales_df.iloc[0]['symbol']
+        
+        # Get thresholds for this symbol
+        if symbol not in self.symbol_thresholds:
+            self.symbol_thresholds[symbol] = get_thresholds(symbol)
+        thresholds = self.symbol_thresholds[symbol]
+        
+        # Use half of mega_whale threshold for wall fade strategy
+        wall_threshold = thresholds['mega_whale'] * 0.5
+        
         # Find mega whale sell walls
         mega_sells = whales_df[
             (whales_df['side'] == 'ask') & 
-            (whales_df['value_usd'] > 500000) &
+            (whales_df['value_usd'] > wall_threshold) &
             (whales_df['percentage_of_book'] > 50)
         ]
         
@@ -124,12 +140,15 @@ class WhaleStrategyAnalyzer:
             if price_at_time is not None:
                 current_price = price_at_time['last_price']
                 
-                if whale_duration < 60:  # Likely spoofing - trade in direction of wall
+                # Get strategy config
+                wall_config = get_strategy_config('wall_fade')
+                
+                if whale_duration < wall_config['quick_disappear']:  # Likely spoofing - trade in direction of wall
                     signal = TradingSignal(
                         timestamp=whale['timestamp'],
                         symbol=whale['symbol'],
                         action='BUY',
-                        confidence=0.7,
+                        confidence=wall_config['confidence_spoof'],
                         reason=f"Spoofing sell wall detected at ${whale['price']:.4f}",
                         whale_indicators={
                             'wall_size_usd': whale['value_usd'],
@@ -143,12 +162,12 @@ class WhaleStrategyAnalyzer:
                     )
                     signals.append(signal)
                     
-                elif whale_duration > 300:  # Persistent wall - fade it
+                elif whale_duration > wall_config['persistent_time']:  # Persistent wall - fade it
                     signal = TradingSignal(
                         timestamp=whale['timestamp'],
                         symbol=whale['symbol'],
                         action='SELL',
-                        confidence=0.6,
+                        confidence=wall_config['confidence_persistent'],
                         reason=f"Persistent sell wall resistance at ${whale['price']:.4f}",
                         whale_indicators={
                             'wall_size_usd': whale['value_usd'],
@@ -178,6 +197,15 @@ class WhaleStrategyAnalyzer:
         whales_df = data['whales']
         prices_df = data['prices']
         
+        if whales_df.empty:
+            return signals
+        symbol = whales_df.iloc[0]['symbol']
+        
+        # Get thresholds for this symbol
+        if symbol not in self.symbol_thresholds:
+            self.symbol_thresholds[symbol] = get_thresholds(symbol)
+        thresholds = self.symbol_thresholds[symbol]
+        
         # Group whales by 5-minute windows
         whales_df['time_window'] = pd.to_datetime(whales_df['timestamp']).dt.floor('5min')
         
@@ -190,11 +218,17 @@ class WhaleStrategyAnalyzer:
         
         whale_buys.columns = ['time_window', 'total_value', 'count', 'avg_book_pct', 'avg_price']
         
+        # Get strategy config
+        acc_config = get_strategy_config('whale_accumulation')
+        
+        # Use 1.5x whale threshold for accumulation (multiple whales)
+        accumulation_threshold = thresholds['whale'] * 1.5
+        
         # Find strong accumulation periods
         strong_accumulation = whale_buys[
-            (whale_buys['total_value'] > 300000) &
-            (whale_buys['count'] >= 3) &
-            (whale_buys['avg_book_pct'] > 20)
+            (whale_buys['total_value'] > accumulation_threshold) &
+            (whale_buys['count'] >= acc_config['min_whale_count']) &
+            (whale_buys['avg_book_pct'] > acc_config['avg_book_percentage'])
         ]
         
         for _, acc in strong_accumulation.iterrows():
@@ -206,7 +240,7 @@ class WhaleStrategyAnalyzer:
                     timestamp=acc['time_window'],
                     symbol=whales_df.iloc[0]['symbol'],
                     action='BUY',
-                    confidence=0.75,
+                    confidence=acc_config['confidence'],
                     reason=f"Strong whale accumulation detected: {acc['count']} whales, ${acc['total_value']:.0f} total",
                     whale_indicators={
                         'total_whale_value': acc['total_value'],
@@ -247,11 +281,14 @@ class WhaleStrategyAnalyzer:
                 # Trade opposite of spoof direction
                 action = 'BUY' if spoof['side'] == 'ask' else 'SELL'
                 
+                # Get strategy config
+                spoof_config = get_strategy_config('spoofing_detection')
+                
                 signal = TradingSignal(
                     timestamp=spoof['timestamp'],
                     symbol=spoof['symbol'],
                     action=action,
-                    confidence=0.8,
+                    confidence=spoof_config['confidence'],
                     reason=f"Spoofing detected on {spoof['side']} side, ${spoof['initial_value_usd']:.0f}",
                     whale_indicators={
                         'spoof_size': spoof['initial_value_usd'],
@@ -298,15 +335,18 @@ class WhaleStrategyAnalyzer:
                     (whales_df['timestamp'] <= time_window_end)
                 ]
                 
-                if len(window_whales) > 0 and abs(row['imbalance_ma']) > 0.5:
+                # Get strategy config
+                imb_config = get_strategy_config('imbalance_momentum')
+                
+                if len(window_whales) > 0 and abs(row['imbalance_ma']) > imb_config['imbalance_threshold']:
                     # Strong imbalance with whale presence
-                    action = 'BUY' if row['imbalance_ma'] > 0.5 else 'SELL'
+                    action = 'BUY' if row['imbalance_ma'] > imb_config['imbalance_threshold'] else 'SELL'
                     
                     signal = TradingSignal(
                         timestamp=row['timestamp'],
                         symbol=prices_df.iloc[0]['symbol'],
                         action=action,
-                        confidence=0.65,
+                        confidence=imb_config['confidence'],
                         reason=f"Strong {'buy' if action == 'BUY' else 'sell'} imbalance with whale activity",
                         whale_indicators={
                             'imbalance': row['imbalance_ma'],
@@ -323,7 +363,7 @@ class WhaleStrategyAnalyzer:
     
     def mega_whale_reversal_strategy(self, data: Dict[str, pd.DataFrame]) -> List[TradingSignal]:
         """
-        Strategy: Trade reversals when mega whales (>$1M) appear
+        Strategy: Trade reversals when mega whales appear
         Logic: Mega whales often mark local tops/bottoms
         """
         signals = []
@@ -334,8 +374,17 @@ class WhaleStrategyAnalyzer:
         whales_df = data['whales']
         prices_df = data['prices']
         
-        # Find mega whales
-        mega_whales = whales_df[whales_df['value_usd'] > 1000000]
+        if whales_df.empty:
+            return signals
+        symbol = whales_df.iloc[0]['symbol']
+        
+        # Get thresholds for this symbol
+        if symbol not in self.symbol_thresholds:
+            self.symbol_thresholds[symbol] = get_thresholds(symbol)
+        thresholds = self.symbol_thresholds[symbol]
+        
+        # Find mega whales using symbol-specific threshold
+        mega_whales = whales_df[whales_df['value_usd'] > thresholds['mega_whale']]
         
         for _, whale in mega_whales.iterrows():
             # Get price context
@@ -345,11 +394,14 @@ class WhaleStrategyAnalyzer:
                 # Trade reversal - opposite of whale side
                 action = 'SELL' if whale['side'] == 'bid' else 'BUY'
                 
+                # Get strategy config
+                mega_config = get_strategy_config('mega_whale_reversal')
+                
                 signal = TradingSignal(
                     timestamp=whale['timestamp'],
                     symbol=whale['symbol'],
                     action=action,
-                    confidence=0.85,
+                    confidence=mega_config['confidence'],
                     reason=f"Mega whale ${whale['value_usd']/1e6:.1f}M on {whale['side']} - potential reversal",
                     whale_indicators={
                         'whale_size': whale['value_usd'],

@@ -213,24 +213,31 @@ Book %: 79.7%
 - Outputs detailed analysis reports
 
 **⚠️ Important Note About Strategies**:
-The system currently uses **pre-defined, rule-based strategies** with fixed thresholds and parameters. Each strategy has hardcoded rules that determine when to generate trading signals based on specific whale patterns and market conditions.
+The system uses **configurable, rule-based strategies** with thresholds that adapt to each trading pair. Strategy parameters are centralized in `src/thresholds.py` for easy customization.
 
-**Strategies Implemented** (Pre-defined with Fixed Rules):
-1. **Mega Whale Reversal** (85% confidence) - Trade opposite to $1M+ orders
-   - Trigger: Orders > $1,000,000 USD
+**Strategies Implemented** (Configurable per Trading Pair):
+1. **Mega Whale Reversal** (85% confidence) - Trade opposite to mega whale orders
+   - Trigger: Orders > pair's mega_whale threshold (e.g., $250K for SEIUSDT, $5M for BTCUSDT)
    - Action: Trade opposite direction (fade the whale)
 2. **Spoofing Detection** (80% confidence) - Trade against fake/manipulative orders
-   - Trigger: Orders that disappear within 60 seconds
+   - Trigger: Orders that disappear within 60 seconds (configurable)
    - Action: Trade opposite to spoof direction
 3. **Whale Accumulation** (75% confidence) - Follow when multiple whales buy
-   - Trigger: 3+ whales with total > $300,000 in 5-minute window
+   - Trigger: 3+ whales with total > 1.5x whale threshold in 5-minute window
    - Action: Follow the whale buying pressure
 4. **Wall Fade** (65-70% confidence) - Fade persistent resistance walls
-   - Trigger: Walls > $500,000 lasting > 5 minutes
+   - Trigger: Walls > 50% of mega_whale threshold, lasting > 5 minutes
    - Action: Trade based on wall persistence
 5. **Imbalance Momentum** (65% confidence) - Trade with order book imbalance
    - Trigger: Imbalance > 50% with whale presence
    - Action: Trade with the momentum
+
+**📊 Per-Pair Threshold Configuration**:
+The system automatically adjusts thresholds based on each pair's characteristics:
+- **High Volume Pairs** (BTC, ETH): Higher thresholds ($1M-$5M)
+- **Meme Coins** (PEPE, BONK): Lower thresholds ($20K-$125K) 
+- **AI Tokens** (WLD, FET): Medium thresholds ($50K-$250K)
+- **Low Cap Alts** (SPELL): Very low thresholds ($5K-$25K)
 
 **🔧 Future Improvements Needed**:
 - **Parameter Fine-tuning**: The current thresholds (e.g., $1M for mega whale, 60s for spoofing) need optimization based on:
@@ -413,20 +420,40 @@ print(f"Potential spoofing: {len(spoofing)}")
 
 ## ⚙️ Configuration Options
 
-### Thresholds (src/thresholds.py)
+### Centralized Configuration (src/thresholds.py)
+
+The system uses a centralized configuration file that controls:
+- **Per-pair whale thresholds** based on trading volume and liquidity
+- **Strategy-specific parameters** like confidence levels and timeframes
+- **Trading parameters** like stop losses and position sizing
 
 ```python
-THRESHOLDS = {
-    'BTCUSDT': {
-        'whale_usd': 100000,      # $100k for BTC
-        'mega_whale_usd': 500000,  # $500k for BTC
+# Example: Different pairs have different thresholds
+'BTCUSDT': {
+    'whale': 1000000,      # $1M for high-volume BTC
+    'mega_whale': 5000000  # $5M mega whale
+},
+'1000PEPEUSDT': {
+    'whale': 25000,        # $25K for meme coin
+    'mega_whale': 125000   # $125K mega whale
+},
+
+# Strategy parameters are also configurable
+STRATEGY_CONFIG = {
+    'spoofing_detection': {
+        'duration_threshold': 60,  # Seconds
+        'confidence': 0.8
     },
-    'SEIUSDT': {
-        'whale_usd': 50000,        # $50k for SEI
-        'mega_whale_usd': 250000,  # $250k for SEI
+    'mega_whale_reversal': {
+        'confidence': 0.85
     }
 }
 ```
+
+To customize for your needs:
+1. Edit `src/thresholds.py` to adjust pair-specific thresholds
+2. Modify `STRATEGY_CONFIG` to tune strategy parameters
+3. Add new pairs using existing ones as templates
 
 ### Risk Management (src/realtime_trader.py)
 
