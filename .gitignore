@@ -20,7 +20,8 @@ logs/
 *.log
 
 # Data
-data/
+# Ignore CSV files in data directory but keep the directory structure
+data/**/*.csv
 *.db
 *.sqlite
 
