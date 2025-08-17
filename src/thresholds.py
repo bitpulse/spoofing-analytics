@@ -62,6 +62,10 @@ PAIR_THRESHOLDS = {
     "FETUSDT": {
         "whale": 20000,  # $200K - AI token, highly speculative
         "mega_whale": 100000  # $1M
+    },
+    "SEIUSDT": {
+        "whale": 50000,  # $50K - Layer 1 blockchain, moderate volume
+        "mega_whale": 250000  # $250K
     }
 }
 
