@@ -7,6 +7,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from loguru import logger
 
+# Import enhanced spoof detector for better detection
+try:
+    from .enhanced_spoof_detector import EnhancedSpoofDetector, SpoofScore
+    ENHANCED_DETECTION = True
+except ImportError:
+    ENHANCED_DETECTION = False
+    logger.warning("Enhanced spoof detector not available, using basic detection")
+
 
 @dataclass
 class TrackedWhale:
@@ -94,6 +102,13 @@ class WhaleTracker:
         # Statistics
         self.total_whales_tracked = 0
         self.total_spoofs_detected = 0
+        
+        # Initialize enhanced detector if available
+        if ENHANCED_DETECTION:
+            self.enhanced_detector = EnhancedSpoofDetector()
+            logger.info("Enhanced spoofing detection enabled")
+        else:
+            self.enhanced_detector = None
         
     def identify_whale(self, 
                       symbol: str, 
@@ -280,7 +295,21 @@ class WhaleTracker:
                 
                 # Check if it was a spoof
                 duration = whale.last_seen - whale.first_seen
-                if self._is_likely_spoof(whale, duration):
+                
+                # Use enhanced detector if available
+                if self.enhanced_detector and hasattr(whale, 'mid_price_on_appearance'):
+                    score = self.enhanced_detector.analyze_whale_lifecycle(
+                        whale, symbol, whale.mid_price_on_appearance
+                    )
+                    if score and score.confidence_level in ['high', 'medium']:
+                        self.total_spoofs_detected += 1
+                        logger.info(
+                            f"SPOOF [{score.confidence_level.upper()}] {whale.symbol} {whale.side} "
+                            f"${whale.current_value_usd:,.0f} Score: {score.total_score:.0f} "
+                            f"Pattern: {score.pattern_type} Duration: {duration:.1f}s"
+                        )
+                elif self._is_likely_spoof(whale, duration):
+                    # Fallback to basic detection
                     self.total_spoofs_detected += 1
                     logger.info(
                         f"Likely spoof detected: {whale.symbol} {whale.side} "
@@ -336,7 +365,21 @@ class WhaleTracker:
             # Not active: use accumulated total
             duration = whale.total_duration
         
-        return {
+        # Calculate spoof probability with enhanced detector
+        spoof_info = {}
+        if self.enhanced_detector and hasattr(whale, 'mid_price_on_appearance'):
+            score = self.enhanced_detector.analyze_whale_lifecycle(
+                whale, symbol, whale.mid_price_on_appearance
+            )
+            if score:
+                spoof_info = {
+                    'spoof_score': score.total_score,
+                    'spoof_confidence': score.confidence_level,
+                    'spoof_pattern': score.pattern_type,
+                    'spoof_reasons': score.reasons[:3]  # Top 3 reasons
+                }
+        
+        result = {
             'whale_id': whale.whale_id,
             'symbol': whale.symbol,
             'side': whale.side,
@@ -359,6 +402,11 @@ class WhaleTracker:
             'first_seen': datetime.fromtimestamp(whale.first_seen).isoformat(),
             'last_seen': datetime.fromtimestamp(whale.last_seen).isoformat()
         }
+        
+        # Add enhanced scoring if available
+        result.update(spoof_info)
+        
+        return result
         
     def get_statistics(self) -> Dict:
         """Get tracking statistics"""

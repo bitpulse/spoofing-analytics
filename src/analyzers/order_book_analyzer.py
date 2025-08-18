@@ -106,16 +106,33 @@ class OrderBookAnalyzer:
         if self.csv_logger:
             for whale_id in list(self.whale_tracker.recent_whales.get(snapshot.symbol, [])):
                 whale_summary = self.whale_tracker.get_whale_summary(whale_id.whale_id, snapshot.symbol)
-                if whale_summary and whale_summary.get('likely_spoof'):
-                    # Create unique key for this spoof (symbol + whale_id)
-                    spoof_key = f"{snapshot.symbol}_{whale_id.whale_id}"
+                if whale_summary:
+                    # Check for spoofing with enhanced scoring if available
+                    is_spoof = False
+                    confidence = None
                     
-                    # Only log if we haven't logged this spoof before
-                    if spoof_key not in self.logged_spoofs_set:
-                        self.csv_logger.log_spoofing_from_dict(whale_summary)
-                        self.logged_spoofs.append(spoof_key)  # Add to deque
-                        self.logged_spoofs_set.add(spoof_key)  # Add to set for lookups
-                        logger.info(f"Logged new spoof: {whale_id.whale_id[:50]}...")
+                    if 'spoof_confidence' in whale_summary:
+                        # Enhanced detection available
+                        confidence = whale_summary.get('spoof_confidence')
+                        is_spoof = confidence in ['high', 'medium']
+                    else:
+                        # Fallback to basic detection
+                        is_spoof = whale_summary.get('likely_spoof', False)
+                    
+                    if is_spoof:
+                        # Create unique key for this spoof (symbol + whale_id)
+                        spoof_key = f"{snapshot.symbol}_{whale_id.whale_id}"
+                        
+                        # Only log if we haven't logged this spoof before
+                        if spoof_key not in self.logged_spoofs_set:
+                            self.csv_logger.log_spoofing_from_dict(whale_summary)
+                            self.logged_spoofs.append(spoof_key)  # Add to deque
+                            self.logged_spoofs_set.add(spoof_key)  # Add to set for lookups
+                            
+                            if confidence:
+                                logger.info(f"Logged {confidence} confidence spoof: {whale_id.whale_id[:50]}...")
+                            else:
+                                logger.info(f"Logged new spoof: {whale_id.whale_id[:50]}...")
         
         # Calculate whale imbalance
         snapshot.whale_imbalance = len(snapshot.whale_bids) - len(snapshot.whale_asks)
