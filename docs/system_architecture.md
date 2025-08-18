@@ -250,7 +250,9 @@ cp .env.example .env
 # Edit .env with your settings
 
 # Run system
-python -m src.whale_monitor
+python -m src.whale_monitor                  # Use symbols from .env
+python -m src.whale_monitor BTCUSDT         # Monitor single pair
+python -m src.whale_monitor 1               # Monitor group 1
 ```
 
 ### Monitoring

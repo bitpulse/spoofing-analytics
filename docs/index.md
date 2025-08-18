@@ -80,7 +80,16 @@ Based on PROVEN fake orders, not speculation:
 
 ### Start Monitoring
 ```bash
+# Use symbols from .env file
 python -m src.whale_monitor
+
+# Monitor a single trading pair
+python -m src.whale_monitor BTCUSDT        # Monitor Bitcoin
+python -m src.whale_monitor --pair ETHUSDT # Monitor Ethereum
+
+# Monitor predefined groups (10 pairs each)
+python -m src.whale_monitor 1              # Group 1: Meme coins
+python -m src.whale_monitor --group 2      # Group 2: AI & Gaming
 ```
 
 ### Analyze Data

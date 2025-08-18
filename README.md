@@ -64,7 +64,16 @@ CSV_ROTATION_HOURS=1 # Create new CSV file every hour
 
 ```bash
 # Start whale monitoring (data collection + alerts)
-python -m src.whale_monitor
+python -m src.whale_monitor                    # Use symbols from .env
+
+# Monitor a single trading pair
+python -m src.whale_monitor BTCUSDT           # Monitor Bitcoin
+python -m src.whale_monitor ETHUSDT           # Monitor Ethereum  
+python -m src.whale_monitor --pair SOLUSDT    # Alternative syntax
+
+# Monitor predefined groups (10 pairs each)
+python -m src.whale_monitor 1                 # Group 1: Meme coins
+python -m src.whale_monitor --group 2         # Group 2: AI & Gaming
 
 # The system will:
 # 1. Connect to Binance WebSocket streams

@@ -72,6 +72,14 @@ The whale analytics system now supports monitoring 50 highly manipulated futures
 
 ## Usage
 
+### Single Pair Monitoring
+```bash
+# Monitor a specific trading pair
+python -m src.whale_monitor BTCUSDT        # Monitor Bitcoin
+python -m src.whale_monitor ETHUSDT        # Monitor Ethereum
+python -m src.whale_monitor --pair SOLUSDT # Alternative syntax
+```
+
 ### Single Group Monitoring
 ```bash
 # Monitor group 1 (meme coins)

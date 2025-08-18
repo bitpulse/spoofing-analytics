@@ -16,6 +16,11 @@ Usage:
     # Monitor default symbols from .env or SYMBOLS environment variable
     python -m src.whale_monitor
     
+    # Monitor a single trading pair
+    python -m src.whale_monitor BTCUSDT        # Monitor Bitcoin
+    python -m src.whale_monitor ETHUSDT        # Monitor Ethereum
+    python -m src.whale_monitor --pair SOLUSDT # Alternative syntax
+    
     # Monitor specific group (1-5, each group has 10 pre-configured pairs)
     python -m src.whale_monitor 1      # Group 1: Ultra high risk meme coins
     python -m src.whale_monitor 2      # Group 2: AI & Gaming narrative
@@ -23,16 +28,16 @@ Usage:
     python -m src.whale_monitor 4      # Group 4: Volatile alts
     python -m src.whale_monitor 5      # Group 5: Mid-cap majors
     
-    # Alternative syntax
+    # Alternative syntax for groups
     python -m src.whale_monitor --group 1
     python -m src.whale_monitor --group=2
     
     # Run multiple instances in parallel (different terminals)
-    python -m src.whale_monitor 1 &    # Terminal 1
-    python -m src.whale_monitor 2 &    # Terminal 2
-    python -m src.whale_monitor 3 &    # Terminal 3
-    python -m src.whale_monitor 4 &    # Terminal 4
-    python -m src.whale_monitor 5 &    # Terminal 5
+    python -m src.whale_monitor BTCUSDT &      # Terminal 1: Bitcoin
+    python -m src.whale_monitor ETHUSDT &      # Terminal 2: Ethereum
+    python -m src.whale_monitor 1 &            # Terminal 3: Group 1
+    python -m src.whale_monitor 2 &            # Terminal 4: Group 2
+    python -m src.whale_monitor --pair PEPEUSDT &  # Terminal 5: PEPE
 
 The system will run continuously until stopped with Ctrl+C.
 All collected data is saved to the data/ directory.
@@ -185,9 +190,10 @@ class WhaleAnalyticsSystem:
         self.running = True
         
         # Log which group or symbols we're monitoring
-        if len(sys.argv) > 1 and sys.argv[-1].isdigit():
-            group_num = int(sys.argv[-1])
-            if 1 <= group_num <= 5:
+        if len(sys.argv) > 1:
+            last_arg = sys.argv[-1]
+            if last_arg.isdigit() and 1 <= int(last_arg) <= 5:
+                group_num = int(last_arg)
                 group_descriptions = {
                     1: "Ultra High Risk - Meme Coins & New Listings",
                     2: "AI & Gaming Narrative - Heavy Speculation",
@@ -196,6 +202,8 @@ class WhaleAnalyticsSystem:
                     5: "Mid-Cap Majors & Established Alts"
                 }
                 logger.info(f"Monitoring Group {group_num}: {group_descriptions[group_num]}")
+            elif last_arg.upper().endswith('USDT'):
+                logger.info(f"Monitoring single pair: {last_arg.upper()}")
         
         # Log thresholds for each symbol
         logger.info(f"Monitoring {len(config.symbols_list)} trading pairs:")
@@ -298,16 +306,18 @@ class WhaleAnalyticsSystem:
 
 def main():
     """Main entry point"""
-    # Parse command line arguments for group selection
+    # Parse command line arguments for group selection or single pair
     import argparse
     parser = argparse.ArgumentParser(
         description="Whale Analytics System - Monitor crypto whale activity",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m src.whale_monitor          # Use symbols from .env
-  python -m src.whale_monitor 1        # Monitor group 1 (meme coins)
-  python -m src.whale_monitor --group 2  # Monitor group 2 (AI/Gaming)
+  python -m src.whale_monitor                # Use symbols from .env
+  python -m src.whale_monitor 1              # Monitor group 1 (meme coins)
+  python -m src.whale_monitor --group 2      # Monitor group 2 (AI/Gaming)
+  python -m src.whale_monitor BTCUSDT        # Monitor single pair
+  python -m src.whale_monitor --pair ETHUSDT # Monitor single pair
   
 Groups (10 pairs each):
   1: Ultra high risk meme coins (PEPE, BONK, WIF, etc.)
@@ -318,13 +328,11 @@ Groups (10 pairs each):
         """
     )
     
-    # Support both positional and named argument for group
+    # Support both positional and named arguments
     parser.add_argument(
-        'group_num',
+        'input',
         nargs='?',
-        type=int,
-        choices=[1, 2, 3, 4, 5],
-        help='Monitoring group number (1-5)'
+        help='Group number (1-5) or trading pair (e.g., BTCUSDT)'
     )
     parser.add_argument(
         '--group',
@@ -332,13 +340,45 @@ Groups (10 pairs each):
         choices=[1, 2, 3, 4, 5],
         help='Monitoring group number (1-5)'
     )
+    parser.add_argument(
+        '--pair',
+        type=str,
+        help='Single trading pair to monitor (e.g., BTCUSDT)'
+    )
     
     args = parser.parse_args()
     
-    # Determine which group to use (positional takes precedence)
-    group_to_use = args.group_num or args.group
+    # Determine what to monitor
+    group_to_use = None
+    single_pair = None
     
-    if group_to_use:
+    # Check if positional argument is a group number or pair
+    if args.input:
+        if args.input.isdigit() and 1 <= int(args.input) <= 5:
+            group_to_use = int(args.input)
+        else:
+            single_pair = args.input.upper()
+    
+    # Named arguments take precedence if provided
+    if args.group:
+        group_to_use = args.group
+        single_pair = None
+    elif args.pair:
+        single_pair = args.pair.upper()
+        group_to_use = None
+    
+    # Set configuration based on arguments
+    if single_pair:
+        logger.info(f"Starting Whale Analytics System for single pair: {single_pair}")
+        # Override config to use single pair
+        import os
+        os.environ['SYMBOLS'] = single_pair
+        # Reload config to pick up the change
+        from importlib import reload
+        import src.config
+        reload(src.config)
+        from src.config import config
+    elif group_to_use:
         logger.info(f"Starting Whale Analytics System for Group {group_to_use}")
         # The config will automatically detect the group from sys.argv
     
