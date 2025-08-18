@@ -376,6 +376,133 @@ async def get_available_symbols():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/pairs")
+async def get_monitored_pairs():
+    """
+    Get list of all monitored trading pairs with detailed information
+    
+    Returns configuration, monitoring status, and data availability for each pair
+    """
+    try:
+        # Import config to get monitoring groups
+        from src.thresholds import MONITORING_GROUPS, PAIR_THRESHOLDS
+        
+        # Collect all monitored pairs
+        monitored_pairs = {}
+        
+        # Get configured pairs from monitoring groups
+        for group_num, pairs in MONITORING_GROUPS.items():
+            for pair in pairs:
+                if pair not in monitored_pairs:
+                    monitored_pairs[pair] = {
+                        "symbol": pair,
+                        "monitoring_group": group_num,
+                        "group_name": {
+                            1: "Ultra High Risk - Meme Coins",
+                            2: "AI & Gaming Narrative",
+                            3: "Low Cap DeFi & L2s",
+                            4: "Volatile Alts",
+                            5: "Mid-Cap Majors"
+                        }.get(group_num, "Custom"),
+                        "thresholds": PAIR_THRESHOLDS.get(pair, {
+                            "whale": 100000,
+                            "mega_whale": 500000
+                        }),
+                        "has_data": False,
+                        "data_stats": {}
+                    }
+        
+        # Check Redis for actual data availability
+        for pair in list(monitored_pairs.keys()):
+            # Check spoofing data
+            spoof_count = redis_storage.redis_client.zcard(f"spoofs:timeline:{pair}")
+            
+            # Get time range if data exists
+            if spoof_count > 0:
+                monitored_pairs[pair]["has_data"] = True
+                
+                # Get first and last spoof timestamps
+                first_spoof = redis_storage.redis_client.zrange(
+                    f"spoofs:timeline:{pair}", 0, 0, withscores=True
+                )
+                last_spoof = redis_storage.redis_client.zrange(
+                    f"spoofs:timeline:{pair}", -1, -1, withscores=True
+                )
+                
+                if first_spoof and last_spoof:
+                    monitored_pairs[pair]["data_stats"] = {
+                        "total_spoofs": spoof_count,
+                        "first_seen": datetime.fromtimestamp(first_spoof[0][1]).isoformat(),
+                        "last_seen": datetime.fromtimestamp(last_spoof[0][1]).isoformat(),
+                        "patterns": {}
+                    }
+                    
+                    # Get pattern distribution
+                    for pattern in ['single', 'flickering', 'size_manipulation']:
+                        pattern_count = redis_storage.redis_client.scard(
+                            f"spoofs:pattern:{pattern}:{pair}"
+                        )
+                        if pattern_count > 0:
+                            monitored_pairs[pair]["data_stats"]["patterns"][pattern] = pattern_count
+        
+        # Also check for pairs with data but not in config
+        for key in redis_storage.redis_client.scan_iter("spoofs:timeline:*"):
+            symbol = key.split(':')[-1]
+            if symbol not in monitored_pairs:
+                spoof_count = redis_storage.redis_client.zcard(key)
+                monitored_pairs[symbol] = {
+                    "symbol": symbol,
+                    "monitoring_group": 0,
+                    "group_name": "Unconfigured (Historical Data Only)",
+                    "thresholds": {
+                        "whale": 100000,
+                        "mega_whale": 500000
+                    },
+                    "has_data": True,
+                    "data_stats": {
+                        "total_spoofs": spoof_count
+                    }
+                }
+        
+        # Sort by monitoring group and then by symbol
+        sorted_pairs = sorted(
+            monitored_pairs.values(),
+            key=lambda x: (x["monitoring_group"], x["symbol"])
+        )
+        
+        # Group by monitoring status
+        active_monitoring = [p for p in sorted_pairs if p["monitoring_group"] > 0]
+        data_only = [p for p in sorted_pairs if p["monitoring_group"] == 0]
+        
+        return JSONResponse(
+            content={
+                "total_pairs": len(monitored_pairs),
+                "actively_monitored": len(active_monitoring),
+                "data_only": len(data_only),
+                "monitoring_groups": {
+                    1: "Ultra High Risk - Meme Coins & New Listings",
+                    2: "AI & Gaming Narrative - Heavy Speculation",
+                    3: "Low Cap DeFi & L2s - Liquidity Games",
+                    4: "Volatile Alts - Manipulation Favorites",
+                    5: "Mid-Cap Majors & Established Alts"
+                },
+                "pairs": sorted_pairs,
+                "summary": {
+                    "with_data": len([p for p in sorted_pairs if p["has_data"]]),
+                    "without_data": len([p for p in sorted_pairs if not p["has_data"]]),
+                    "by_group": {
+                        group: len([p for p in sorted_pairs if p["monitoring_group"] == group])
+                        for group in range(6)
+                    }
+                }
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting monitored pairs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # WebSocket for real-time updates
 @app.websocket("/ws/spoofs/{symbol}")
 async def websocket_live_spoofs(websocket: WebSocket, symbol: str):
@@ -384,10 +511,11 @@ async def websocket_live_spoofs(websocket: WebSocket, symbol: str):
     
     Connect to receive live updates when new spoofs are detected
     """
-    await websocket.accept()
-    logger.info(f"WebSocket client connected for {symbol}")
-    
+    pubsub = None
     try:
+        await websocket.accept()
+        logger.info(f"WebSocket client connected for {symbol}")
+        
         # Create pubsub subscription
         pubsub = redis_storage.redis_client.pubsub()
         pubsub.subscribe(f"spoofs:live:{symbol}")
@@ -406,29 +534,51 @@ async def websocket_live_spoofs(websocket: WebSocket, symbol: str):
             
             if message and message['type'] == 'message':
                 # Parse and send spoof data
-                spoof_data = json.loads(message['data'])
-                await websocket.send_json({
-                    "type": "spoof",
-                    "data": spoof_data
-                })
-                
-            # Keep connection alive
+                try:
+                    spoof_data = json.loads(message['data'])
+                    await websocket.send_json({
+                        "type": "spoof",
+                        "data": spoof_data
+                    })
+                except Exception as send_error:
+                    logger.debug(f"Error sending WebSocket message: {send_error}")
+                    break  # Exit loop if we can't send messages
+                    
+            # Check if client is still connected (ping-pong)
             try:
                 await asyncio.wait_for(
                     websocket.receive_text(),
                     timeout=0.1
                 )
             except asyncio.TimeoutError:
-                pass
+                pass  # Expected timeout, connection still alive
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket client disconnected normally for {symbol}")
+                break
+            except Exception:
+                # Client disconnected unexpectedly
+                logger.debug(f"WebSocket client disconnected unexpectedly for {symbol}")
+                break
                 
     except WebSocketDisconnect:
         logger.info(f"WebSocket client disconnected for {symbol}")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await websocket.close()
+        if "no close frame received or sent" not in str(e):
+            logger.error(f"WebSocket error for {symbol}: {e}")
     finally:
-        pubsub.unsubscribe()
-        pubsub.close()
+        # Clean up resources
+        if pubsub:
+            try:
+                pubsub.unsubscribe()
+                pubsub.close()
+            except Exception:
+                pass  # Ignore cleanup errors
+        
+        # Try to close WebSocket if still open
+        try:
+            await websocket.close()
+        except Exception:
+            pass  # WebSocket already closed
 
 
 # Health check endpoint
