@@ -9,7 +9,7 @@ from loguru import logger
 
 # Import enhanced spoof detector for better detection
 try:
-    from .enhanced_spoof_detector import EnhancedSpoofDetector, SpoofScore
+    from .spoof_detector import EnhancedSpoofDetector, SpoofScore
     ENHANCED_DETECTION = True
 except ImportError:
     ENHANCED_DETECTION = False
