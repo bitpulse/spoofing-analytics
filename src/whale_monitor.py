@@ -55,7 +55,7 @@ import signal
 import sys
 import time
 from loguru import logger
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from src.config import config
 from src.collectors.websocket_manager import BinanceWebSocketManager
@@ -68,15 +68,24 @@ from src.alerts.telegram_manager import TelegramAlertManager
 
 
 class WhaleAnalyticsSystem:
-    def __init__(self):
+    def __init__(self, override_symbols: List[str] = None):
+        # Store symbol override
+        self.override_symbols = override_symbols
+        
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
         
         # Create a shared CSV logger instance
         self.csv_logger = CSVLogger()
         
+        # Get symbols to use
+        self.symbols_to_monitor = override_symbols if override_symbols else config.symbols_list
+        
         # Pass CSV logger to both Telegram manager and analyzer
-        self.telegram_manager = TelegramAlertManager(csv_logger=self.csv_logger) if config.telegram_alerts_enabled else None
+        self.telegram_manager = TelegramAlertManager(
+            csv_logger=self.csv_logger,
+            symbols_list=self.symbols_to_monitor
+        ) if config.telegram_alerts_enabled else None
         self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)  # Disable analyzer's own CSV logger
         self.analyzer.csv_logger = self.csv_logger  # Use shared CSV logger instead
         
@@ -206,8 +215,8 @@ class WhaleAnalyticsSystem:
                 logger.info(f"Monitoring single pair: {last_arg.upper()}")
         
         # Log thresholds for each symbol
-        logger.info(f"Monitoring {len(config.symbols_list)} trading pairs:")
-        for symbol in config.symbols_list:
+        logger.info(f"Monitoring {len(self.symbols_to_monitor)} trading pairs:")
+        for symbol in self.symbols_to_monitor:
             thresholds = config.get_whale_thresholds(symbol)
             logger.info(f"  {symbol}: Whale=${thresholds['whale']:,.0f}, Mega=${thresholds['mega_whale']:,.0f}")
         
@@ -216,7 +225,7 @@ class WhaleAnalyticsSystem:
             self.telegram_manager.send_startup_message()
         
         # Subscribe to order book streams for configured symbols
-        for symbol in config.symbols_list:
+        for symbol in self.symbols_to_monitor:
             logger.info(f"Subscribing to {symbol} order book...")
             
             self.ws_manager.subscribe_order_book(
@@ -368,21 +377,15 @@ Groups (10 pairs each):
         group_to_use = None
     
     # Set configuration based on arguments
+    override_symbols = None
     if single_pair:
         logger.info(f"Starting Whale Analytics System for single pair: {single_pair}")
-        # Override config to use single pair
-        import os
-        os.environ['SYMBOLS'] = single_pair
-        # Reload config to pick up the change
-        from importlib import reload
-        import src.config
-        reload(src.config)
-        from src.config import config
+        override_symbols = [single_pair]
     elif group_to_use:
         logger.info(f"Starting Whale Analytics System for Group {group_to_use}")
         # The config will automatically detect the group from sys.argv
     
-    system = WhaleAnalyticsSystem()
+    system = WhaleAnalyticsSystem(override_symbols=override_symbols)
     
     try:
         system.start()

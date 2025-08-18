@@ -17,11 +17,12 @@ from src.storage.csv_logger import AlertEvent
 class TelegramAlertManager:
     """Manages Telegram notifications for whale alerts"""
     
-    def __init__(self, csv_logger=None):
+    def __init__(self, csv_logger=None, symbols_list=None):
         self.enabled = config.telegram_alerts_enabled
         self.bot = None
         self.channel_id = config.telegram_channel_id
         self.csv_logger = csv_logger  # CSV logger for saving alerts
+        self.symbols_list = symbols_list if symbols_list else config.symbols_list  # Symbols to monitor
         
         # Alert throttling - prevent spam
         self.last_alert_time: Dict[str, float] = defaultdict(float)
@@ -256,7 +257,7 @@ class TelegramAlertManager:
         
         # Build threshold info for each symbol
         threshold_info = []
-        for symbol in config.symbols_list:
+        for symbol in self.symbols_list:
             thresholds = config.get_whale_thresholds(symbol)
             # Format thresholds appropriately based on their size
             whale_val = thresholds['whale']
@@ -296,7 +297,7 @@ class TelegramAlertManager:
         
         # Log startup message to CSV
         if self.csv_logger:
-            for symbol in config.symbols_list:
+            for symbol in self.symbols_list:
                 try:
                     alert_event = AlertEvent(
                         timestamp=datetime.now().isoformat(),
@@ -338,7 +339,7 @@ class TelegramAlertManager:
         
         # Log summary to CSV for each symbol
         if self.csv_logger:
-            for symbol in config.symbols_list:
+            for symbol in self.symbols_list:
                 try:
                     alert_event = AlertEvent(
                         timestamp=datetime.now().isoformat(),
