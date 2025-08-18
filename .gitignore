@@ -38,3 +38,8 @@ Thumbs.db
 
 # Redis
 dump.rdb
+
+
+charts
+
+data_snapshot
