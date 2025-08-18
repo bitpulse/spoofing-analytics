@@ -5,9 +5,12 @@ Price Comparison Monitor
 Compares local CSV prices with Binance API prices to verify data accuracy.
 
 Usage:
-    python -m src.monitoring.price_compare              # Monitor all symbols with data
-    python -m src.monitoring.price_compare WIFUSDT      # Monitor specific symbol
-    python -m src.monitoring.price_compare --continuous # Continuous monitoring
+    python -m src.monitoring.price_compare              # Compare all symbols once
+    python -m src.monitoring.price_compare WIFUSDT      # Compare specific symbol once
+    python -m src.monitoring.price_compare -c           # Continuous monitoring (live update)
+    python -m src.monitoring.price_compare -c -s        # Stream mode (new line per update)
+    python -m src.monitoring.price_compare -c -i 100    # 100ms updates
+    python -m src.monitoring.price_compare -c -s -i 100 # 100ms stream mode
 """
 
 import os
@@ -378,7 +381,7 @@ class PriceComparator:
         return Panel("No valid comparisons", title="Summary")
 
 
-def monitor_prices(comparator: PriceComparator, symbols: List[str], continuous: bool = False, interval_ms: int = 2000):
+def monitor_prices(comparator: PriceComparator, symbols: List[str], continuous: bool = False, interval_ms: int = 2000, stream_mode: bool = False):
     """Monitor price comparisons"""
     
     console.print(Panel.fit(
@@ -395,12 +398,16 @@ def monitor_prices(comparator: PriceComparator, symbols: List[str], continuous: 
             interval_str = f"{interval_ms}ms"
             
         console.print(f"[yellow]Continuous monitoring mode - updates every {interval_str}[/yellow]")
+        
+        if stream_mode:
+            console.print("[cyan]Stream mode: Each update on new line[/cyan]")
+        else:
+            console.print("[cyan]Live mode: Updates in place[/cyan]")
+            
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
         
-        # Higher refresh rate for fast updates
-        refresh_rate = max(10, 1000 / interval_ms)
-        
-        with Live(console=console, refresh_per_second=refresh_rate) as live:
+        if stream_mode:
+            # Stream mode - print each update on a new line
             while True:
                 try:
                     # Get comparisons
@@ -410,33 +417,94 @@ def monitor_prices(comparator: PriceComparator, symbols: List[str], continuous: 
                         if comp:
                             comparisons.append(comp)
                     
-                    # Create layout - use compact view for fast updates
-                    if interval_ms <= 500:
-                        # Ultra-fast mode - just the compact table
-                        live.update(comparator.format_compact_view(comparisons))
-                    elif interval_ms <= 1000:
-                        # Fast mode - compact view with summary
-                        layout = Layout()
-                        layout.split_column(
-                            Layout(comparator.create_summary_panel(comparisons), size=10),
-                            Layout(comparator.format_compact_view(comparisons))
-                        )
-                        live.update(layout)
-                    else:
-                        # Normal mode - full view
-                        layout = Layout()
-                        layout.split_column(
-                            Layout(comparator.create_summary_panel(comparisons), size=10),
-                            Layout(comparator.format_comparison_table(comparisons))
-                        )
-                        live.update(layout)
+                    # Print compact line for each comparison
+                    timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                    for comp in comparisons:
+                        if comp:
+                            symbol = comp['symbol']
+                            local_mid = comp['differences']['mid_price']['local']
+                            api_mid = comp['differences']['mid_price']['api']
+                            diff_pct = comp['differences']['mid_price']['diff_pct']
+                            age = comp['data_age_seconds']
+                            
+                            # Color code difference
+                            if abs(diff_pct) < 0.01:
+                                diff_color = "green"
+                            elif abs(diff_pct) < 0.05:
+                                diff_color = "yellow"
+                            else:
+                                diff_color = "red"
+                            
+                            # Format age
+                            if age < 1:
+                                age_str = f"{age*1000:.0f}ms"
+                                age_color = "bright_green"
+                            elif age < 5:
+                                age_str = f"{age:.1f}s"
+                                age_color = "green"
+                            else:
+                                age_str = f"{age:.1f}s"
+                                age_color = "yellow"
+                            
+                            # Print line
+                            console.print(
+                                f"[dim]{timestamp}[/dim] | "
+                                f"[cyan]{symbol:8}[/cyan] | "
+                                f"[green]📁 ${local_mid:.4f}[/green] | "
+                                f"[blue]🌐 ${api_mid:.4f}[/blue] | "
+                                f"[{diff_color}]{diff_pct:+.3f}%[/{diff_color}] | "
+                                f"[{age_color}]{age_str:>6}[/{age_color}]"
+                            )
+                    
                     time.sleep(interval_sec)
                     
                 except KeyboardInterrupt:
                     break
                 except Exception as e:
                     logger.error(f"Error in monitoring loop: {e}")
-                    time.sleep(2)
+                    time.sleep(interval_sec)
+        else:
+            # Live mode - update in place
+            # Higher refresh rate for fast updates
+            refresh_rate = max(10, 1000 / interval_ms)
+            
+            with Live(console=console, refresh_per_second=refresh_rate) as live:
+                while True:
+                    try:
+                        # Get comparisons
+                        comparisons = []
+                        for symbol in symbols:
+                            comp = comparator.compare_prices(symbol)
+                            if comp:
+                                comparisons.append(comp)
+                        
+                        # Create layout - use compact view for fast updates
+                        if interval_ms <= 500:
+                            # Ultra-fast mode - just the compact table
+                            live.update(comparator.format_compact_view(comparisons))
+                        elif interval_ms <= 1000:
+                            # Fast mode - compact view with summary
+                            layout = Layout()
+                            layout.split_column(
+                                Layout(comparator.create_summary_panel(comparisons), size=10),
+                                Layout(comparator.format_compact_view(comparisons))
+                            )
+                            live.update(layout)
+                        else:
+                            # Normal mode - full view
+                            layout = Layout()
+                            layout.split_column(
+                                Layout(comparator.create_summary_panel(comparisons), size=10),
+                                Layout(comparator.format_comparison_table(comparisons))
+                            )
+                            live.update(layout)
+                        time.sleep(interval_sec)
+                        
+                    except KeyboardInterrupt:
+                        break
+                    except Exception as e:
+                        logger.error(f"Error in monitoring loop: {e}")
+                        time.sleep(2)
     else:
         # Single run
         comparisons = []
@@ -457,12 +525,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m src.monitoring.price_compare              # Compare all symbols
-  python -m src.monitoring.price_compare WIFUSDT      # Compare specific symbol
-  python -m src.monitoring.price_compare --continuous # Continuous monitoring (2s updates)
-  python -m src.monitoring.price_compare WIFUSDT -c -i 100  # 100ms updates
-  python -m src.monitoring.price_compare WIFUSDT -c -i 500  # 500ms updates
-  python -m src.monitoring.price_compare WIFUSDT BTCUSDT --continuous --interval 1000
+  # Single comparison
+  python -m src.monitoring.price_compare WIFUSDT
+  
+  # Continuous monitoring (updates in place)
+  python -m src.monitoring.price_compare WIFUSDT -c
+  python -m src.monitoring.price_compare WIFUSDT -c -i 100   # 100ms updates
+  
+  # Stream mode (new line per update - good for logging)
+  python -m src.monitoring.price_compare WIFUSDT -c -s        # 2s stream
+  python -m src.monitoring.price_compare WIFUSDT -c -s -i 100 # 100ms stream
+  python -m src.monitoring.price_compare WIFUSDT -c -s -i 500 # 500ms stream
+  
+  # Multiple symbols
+  python -m src.monitoring.price_compare WIFUSDT BTCUSDT -c -s -i 100
         """
     )
     
@@ -485,6 +561,13 @@ Examples:
         type=int,
         default=2000,
         help='Update interval in milliseconds (default: 2000ms, minimum: 100ms)'
+    )
+    
+    parser.add_argument(
+        '--stream',
+        '-s',
+        action='store_true',
+        help='Stream mode: print each update on a new line (good for logging)'
     )
     
     parser.add_argument(
@@ -515,7 +598,7 @@ Examples:
     
     # Start monitoring
     try:
-        monitor_prices(comparator, symbols, continuous=args.continuous, interval_ms=args.interval)
+        monitor_prices(comparator, symbols, continuous=args.continuous, interval_ms=args.interval, stream_mode=args.stream)
     except KeyboardInterrupt:
         console.print("\n[yellow]Monitoring stopped[/yellow]")
 
