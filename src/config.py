@@ -41,7 +41,7 @@ class Config(BaseSettings):
     mega_whale_order_threshold: float = Field(default=500000, env="MEGA_WHALE_ORDER_THRESHOLD")
     
     # Storage Configuration
-    redis_host: str = Field(default="localhost", env="REDIS_HOST")
+    redis_host: str = Field(default="127.0.0.1", env="REDIS_HOST")
     redis_port: int = Field(default=6379, env="REDIS_PORT")
     redis_db: int = Field(default=0, env="REDIS_DB")
     
