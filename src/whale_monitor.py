@@ -2,15 +2,8 @@
 🐋 Whale Monitor - Real-time Cryptocurrency Whale Activity Tracker
 ================================================================
 
-This module continuously monitors Binance order books to detect and track whale orders
-(large trades that can move the market). It performs the following tasks:
-
-1. Connects to Binance WebSocket streams for real-time order book data
-2. Identifies whale orders based on configurable thresholds (e.g., >$50K)
-3. Tracks whale order lifecycle (appear, persist, disappear)
-4. Detects market manipulation patterns (spoofing, fake walls)
-5. Saves all data to CSV files for analysis
-6. Sends Telegram alerts for significant whale activity
+Continuously monitors Binance order books to detect and track whale orders
+(large trades) and collect price data for analysis.
 
 Usage:
     # Monitor default symbols from .env or SYMBOLS environment variable
@@ -27,30 +20,8 @@ Usage:
     python -m src.whale_monitor 3      # Group 3: Low cap DeFi & L2s
     python -m src.whale_monitor 4      # Group 4: Volatile alts
     python -m src.whale_monitor 5      # Group 5: Mid-cap majors
-    
-    # Alternative syntax for groups
-    python -m src.whale_monitor --group 1
-    python -m src.whale_monitor --group=2
-    
-    # Run multiple instances in parallel (different terminals)
-    python -m src.whale_monitor BTCUSDT &      # Terminal 1: Bitcoin
-    python -m src.whale_monitor ETHUSDT &      # Terminal 2: Ethereum
-    python -m src.whale_monitor 1 &            # Terminal 3: Group 1
-    python -m src.whale_monitor 2 &            # Terminal 4: Group 2
-    python -m src.whale_monitor --pair PEPEUSDT &  # Terminal 5: PEPE
-
-The system will run continuously until stopped with Ctrl+C.
-All collected data is saved to the data/ directory.
-
-Groups are optimized for detecting manipulation:
-- Group 1: Meme coins with 97%+ manipulation rates
-- Group 2: Narrative-driven tokens with 50-70% daily swings  
-- Group 3: Thin order books perfect for spoofing
-- Group 4: Regular 30-50% moves, whale hunting grounds
-- Group 5: Higher liquidity but still manipulated
 """
 
-import asyncio
 import signal
 import sys
 import time
@@ -64,7 +35,6 @@ from src.models.order_book import OrderBookSnapshot
 from src.analyzers.order_book_analyzer import OrderBookAnalyzer
 from src.storage.memory_store import MemoryStore
 from src.storage.csv_logger import CSVLogger
-from src.alerts.telegram_manager import TelegramAlertManager
 
 
 class WhaleAnalyticsSystem:
@@ -81,13 +51,9 @@ class WhaleAnalyticsSystem:
         # Get symbols to use
         self.symbols_to_monitor = override_symbols if override_symbols else config.symbols_list
         
-        # Pass CSV logger to both Telegram manager and analyzer
-        self.telegram_manager = TelegramAlertManager(
-            csv_logger=self.csv_logger,
-            symbols_list=self.symbols_to_monitor
-        ) if config.telegram_alerts_enabled else None
-        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)  # Disable analyzer's own CSV logger
-        self.analyzer.csv_logger = self.csv_logger  # Use shared CSV logger instead
+        # Initialize analyzer without Telegram
+        self.analyzer = OrderBookAnalyzer(telegram_manager=None, enable_csv_logging=False)
+        self.analyzer.csv_logger = self.csv_logger  # Use shared CSV logger
         
         self.storage = MemoryStore()
         
@@ -154,7 +120,7 @@ class WhaleAnalyticsSystem:
                     f"(previous: {previous_update_id}, current: {snapshot.update_id})"
                 )
                 
-            # Analyze snapshot
+            # Analyze snapshot for whales only
             analyzed_snapshot = self.analyzer.analyze_snapshot(snapshot)
             
             # Store in memory
@@ -176,10 +142,6 @@ class WhaleAnalyticsSystem:
             if price_collector.should_save():
                 price_collector.save_price_data(price_data)
                 logger.debug(f"Saved price data for {symbol}")
-            
-            # Check for whale changes (spoofing detection)
-            if self.telegram_manager:
-                self.telegram_manager.check_whale_changes(analyzed_snapshot)
             
             # Only log when significant whale orders detected (reduce spam)
             if (analyzed_snapshot.whale_bids and any(w.value_usd > 3000000 for w in analyzed_snapshot.whale_bids)) or \
@@ -220,10 +182,6 @@ class WhaleAnalyticsSystem:
             thresholds = config.get_whale_thresholds(symbol)
             logger.info(f"  {symbol}: Whale=${thresholds['whale']:,.0f}, Mega=${thresholds['mega_whale']:,.0f}")
         
-        # Send startup message to Telegram if enabled
-        if self.telegram_manager:
-            self.telegram_manager.send_startup_message()
-        
         # Subscribe to order book streams for configured symbols
         for symbol in self.symbols_to_monitor:
             logger.info(f"Subscribing to {symbol} order book...")
@@ -251,17 +209,6 @@ class WhaleAnalyticsSystem:
                 if loop_count % 6 == 0:  # Every minute
                     self._print_stats()
                     
-                    # Send summary to Telegram
-                    if self.telegram_manager and loop_count % 180 == 0:  # Every 30 minutes
-                        stats = self.storage.get_stats()
-                        self.telegram_manager.send_summary(stats)
-                    
-                if loop_count % 30 == 0:  # Every 5 minutes
-                    # Check for spoofing
-                    spoofed_orders = self.analyzer.detect_spoofing()
-                    if spoofed_orders:
-                        logger.warning(f"Detected {len(spoofed_orders)} potential spoofing attempts")
-                        
                 if loop_count % 360 == 0:  # Every hour
                     self.storage.cleanup_old_data(hours=24)
                     
@@ -302,10 +249,6 @@ class WhaleAnalyticsSystem:
         
         # Stop WebSocket connections
         self.ws_manager.stop()
-        
-        # Stop Telegram manager
-        if self.telegram_manager:
-            self.telegram_manager.stop()
         
         # Final stats
         self._print_stats()
