@@ -75,8 +75,13 @@ class WhaleAnalyticsSystem:
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
         
-        # Create a shared CSV logger instance
-        self.csv_logger = CSVLogger()
+        # Create a shared CSV logger instance with Redis support
+        self.csv_logger = CSVLogger(
+            enable_redis=True,
+            redis_host=config.redis_host,
+            redis_port=config.redis_port,
+            redis_db=config.redis_db
+        )
         
         # Get symbols to use
         self.symbols_to_monitor = override_symbols if override_symbols else config.symbols_list

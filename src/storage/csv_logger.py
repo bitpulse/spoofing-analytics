@@ -12,6 +12,7 @@ import gzip
 import threading
 from queue import Queue
 from loguru import logger
+from src.storage.redis_storage import RedisSpoofStorage
 
 
 @dataclass
@@ -117,7 +118,8 @@ class AlertEvent:
 class CSVLogger:
     """Manages CSV logging with daily rotation and compression"""
     
-    def __init__(self, base_dir: str = "data"):
+    def __init__(self, base_dir: str = "data", enable_redis: bool = True,
+                 redis_host: str = "127.0.0.1", redis_port: int = 6379, redis_db: int = 0):
         self.base_dir = Path(base_dir)
         self.ensure_directories()
         
@@ -128,6 +130,20 @@ class CSVLogger:
         # Async write queue
         self.write_queue = Queue()
         self.running = True
+        
+        # Initialize Redis storage if enabled
+        self.redis_storage = None
+        if enable_redis:
+            try:
+                self.redis_storage = RedisSpoofStorage(
+                    host=redis_host,
+                    port=redis_port,
+                    db=redis_db
+                )
+                logger.info("Redis storage enabled for spoofing data")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Redis storage: {e}. Continuing with CSV only.")
+                self.redis_storage = None
         
         # Start writer thread
         self.writer_thread = threading.Thread(target=self._process_write_queue, daemon=True)
@@ -250,6 +266,16 @@ class CSVLogger:
         )
         self.log_spoofing(event)
         
+        # Also save directly to Redis if available (for immediate access)
+        if self.redis_storage:
+            try:
+                # Add pattern to the data dict for Redis
+                spoof_data['spoof_pattern'] = pattern
+                spoof_data['timestamp'] = event.timestamp
+                self.redis_storage.save_spoof(spoof_data)
+            except Exception as e:
+                logger.debug(f"Failed to save spoof to Redis: {e}")
+        
     def log_snapshot_from_dict(self, snapshot: Any):
         """Log market snapshot from OrderBookSnapshot object"""
         event = MarketSnapshot(
@@ -298,9 +324,17 @@ class CSVLogger:
         self._write_csv_row(filename, asdict(event), WhaleEvent)
         
     def _write_spoofing(self, event: SpoofingEvent):
-        """Write spoofing event to CSV - per symbol file"""
+        """Write spoofing event to CSV and Redis - per symbol file"""
+        # Write to CSV
         filename = self.get_filename("spoofing", event.symbol)
         self._write_csv_row(filename, asdict(event), SpoofingEvent)
+        
+        # Also save to Redis if available
+        if self.redis_storage:
+            try:
+                self.redis_storage.save_spoof(asdict(event))
+            except Exception as e:
+                logger.debug(f"Failed to save spoof to Redis: {e}")
         
     def _write_snapshot(self, event: MarketSnapshot):
         """Write market snapshot to CSV - per symbol file"""
@@ -312,14 +346,55 @@ class CSVLogger:
         filename = self.get_filename("alerts", event.symbol)
         self._write_csv_row(filename, asdict(event), AlertEvent)
         
+    def _cleanup_old_handles(self):
+        """Clean up old file handles to prevent file descriptor leak"""
+        current_hour = datetime.now().strftime("%Y-%m-%d_%H")
+        
+        # Close handles for files from previous hours
+        to_remove = []
+        for filepath, handle in self.file_handles.items():
+            # Check if this is from a previous hour
+            if current_hour not in str(filepath):
+                try:
+                    handle.close()
+                except:
+                    pass
+                to_remove.append(filepath)
+        
+        # Remove closed handles from cache
+        for filepath in to_remove:
+            del self.file_handles[filepath]
+            if filepath in self.csv_writers:
+                del self.csv_writers[filepath]
+        
+        if to_remove:
+            logger.debug(f"Cleaned up {len(to_remove)} old file handles")
+    
     def _write_csv_row(self, filename: Path, row_dict: Dict, dataclass_type):
         """Write a row to CSV file"""
+        
+        # Clean up old file handles periodically (when cache gets too large)
+        if len(self.file_handles) > 50:  # Limit open files
+            self._cleanup_old_handles()
         
         # Check if file exists
         file_exists = filename.exists()
         
         # Open file and get writer
         if filename not in self.csv_writers:
+            # Close and remove old handle if filename changed (hourly rotation)
+            old_files = [f for f in self.file_handles.keys() 
+                        if f.stem.split('_')[0] == filename.stem.split('_')[0] and f != filename]
+            for old_file in old_files:
+                if old_file in self.file_handles:
+                    try:
+                        self.file_handles[old_file].close()
+                    except:
+                        pass
+                    del self.file_handles[old_file]
+                    if old_file in self.csv_writers:
+                        del self.csv_writers[old_file]
+            
             mode = 'a' if file_exists else 'w'
             file_handle = open(filename, mode, newline='')
             self.file_handles[filename] = file_handle
@@ -436,6 +511,13 @@ class CSVLogger:
         
         # Close all file handles
         for handle in self.file_handles.values():
-            handle.close()
+            try:
+                handle.close()
+            except:
+                pass
+        
+        # Clear the caches
+        self.file_handles.clear()
+        self.csv_writers.clear()
             
         logger.info("CSV Logger stopped")
