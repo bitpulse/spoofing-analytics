@@ -346,14 +346,55 @@ class CSVLogger:
         filename = self.get_filename("alerts", event.symbol)
         self._write_csv_row(filename, asdict(event), AlertEvent)
         
+    def _cleanup_old_handles(self):
+        """Clean up old file handles to prevent file descriptor leak"""
+        current_hour = datetime.now().strftime("%Y-%m-%d_%H")
+        
+        # Close handles for files from previous hours
+        to_remove = []
+        for filepath, handle in self.file_handles.items():
+            # Check if this is from a previous hour
+            if current_hour not in str(filepath):
+                try:
+                    handle.close()
+                except:
+                    pass
+                to_remove.append(filepath)
+        
+        # Remove closed handles from cache
+        for filepath in to_remove:
+            del self.file_handles[filepath]
+            if filepath in self.csv_writers:
+                del self.csv_writers[filepath]
+        
+        if to_remove:
+            logger.debug(f"Cleaned up {len(to_remove)} old file handles")
+    
     def _write_csv_row(self, filename: Path, row_dict: Dict, dataclass_type):
         """Write a row to CSV file"""
+        
+        # Clean up old file handles periodically (when cache gets too large)
+        if len(self.file_handles) > 50:  # Limit open files
+            self._cleanup_old_handles()
         
         # Check if file exists
         file_exists = filename.exists()
         
         # Open file and get writer
         if filename not in self.csv_writers:
+            # Close and remove old handle if filename changed (hourly rotation)
+            old_files = [f for f in self.file_handles.keys() 
+                        if f.stem.split('_')[0] == filename.stem.split('_')[0] and f != filename]
+            for old_file in old_files:
+                if old_file in self.file_handles:
+                    try:
+                        self.file_handles[old_file].close()
+                    except:
+                        pass
+                    del self.file_handles[old_file]
+                    if old_file in self.csv_writers:
+                        del self.csv_writers[old_file]
+            
             mode = 'a' if file_exists else 'w'
             file_handle = open(filename, mode, newline='')
             self.file_handles[filename] = file_handle
@@ -470,6 +511,13 @@ class CSVLogger:
         
         # Close all file handles
         for handle in self.file_handles.values():
-            handle.close()
+            try:
+                handle.close()
+            except:
+                pass
+        
+        # Clear the caches
+        self.file_handles.clear()
+        self.csv_writers.clear()
             
         logger.info("CSV Logger stopped")
