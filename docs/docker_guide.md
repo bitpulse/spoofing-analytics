@@ -44,17 +44,39 @@ docker buildx build -f Dockerfile.whale-monitor --platform linux/amd64,linux/arm
 
 ## Running Containers
 
+> **⚠️ IMPORTANT: Data Persistence**  
+> By default, Docker containers store data internally. When the container is removed, ALL DATA IS LOST.  
+> **Always use volume mounts (`-v`) to persist data on your host system!**
+
 ### Basic Run Commands
 
 ```bash
-# Run with default configuration (monitors group 1)
+# ❌ AVOID: Data stored inside container only (will be lost!)
 docker run -d --name whale-monitor whale-monitor:latest
 
-# Run interactively for debugging
-docker run -it --rm whale-monitor:latest
+# ✅ RECOMMENDED: Mount volumes for data persistence
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-monitor \
+  whale-monitor:latest
 
-# Run with automatic restart
-docker run -d --restart unless-stopped --name whale-monitor whale-monitor:latest
+# Run interactively for debugging
+docker run -it --rm \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  whale-monitor:latest
+
+# Run with automatic restart and volumes
+docker run -d \
+  --restart unless-stopped \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-monitor \
+  whale-monitor:latest
 ```
 
 ### Monitoring Different Symbol Groups
@@ -63,34 +85,69 @@ The whale monitor supports 5 predefined symbol groups optimized for detecting ma
 
 ```bash
 # Group 1: Ultra high risk meme coins (97%+ manipulation rate)
-docker run -d --name whale-group1 whale-monitor:latest python -m src.whale_monitor 1
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-group1 \
+  whale-monitor:latest python -m src.whale_monitor 1
 
 # Group 2: AI & Gaming narrative tokens (50-70% daily swings)
-docker run -d --name whale-group2 whale-monitor:latest python -m src.whale_monitor 2
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-group2 \
+  whale-monitor:latest python -m src.whale_monitor 2
 
 # Group 3: Low cap DeFi & L2s (thin order books)
-docker run -d --name whale-group3 whale-monitor:latest python -m src.whale_monitor 3
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-group3 \
+  whale-monitor:latest python -m src.whale_monitor 3
 
 # Group 4: Volatile alts (30-50% regular moves)
-docker run -d --name whale-group4 whale-monitor:latest python -m src.whale_monitor 4
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-group4 \
+  whale-monitor:latest python -m src.whale_monitor 4
 
 # Group 5: Mid-cap majors (higher liquidity)
-docker run -d --name whale-group5 whale-monitor:latest python -m src.whale_monitor 5
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-group5 \
+  whale-monitor:latest python -m src.whale_monitor 5
 ```
 
 ### Monitoring Specific Trading Pairs
 
 ```bash
 # Monitor Bitcoin
-docker run -d --name whale-btc whale-monitor:latest python -m src.whale_monitor BTCUSDT
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-btc \
+  whale-monitor:latest python -m src.whale_monitor BTCUSDT
 
 # Monitor Ethereum
-docker run -d --name whale-eth whale-monitor:latest python -m src.whale_monitor ETHUSDT
+docker run -d \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  --name whale-eth \
+  whale-monitor:latest python -m src.whale_monitor ETHUSDT
 
-# Monitor multiple pairs in parallel
-docker run -d --name whale-btc whale-monitor:latest python -m src.whale_monitor BTCUSDT
-docker run -d --name whale-eth whale-monitor:latest python -m src.whale_monitor ETHUSDT
-docker run -d --name whale-sol whale-monitor:latest python -m src.whale_monitor SOLUSDT
+# Monitor multiple pairs in parallel (each needs unique container name)
+docker run -d -v $(pwd)/data:/app/data -v $(pwd)/logs:/app/logs --env-file .env --name whale-btc whale-monitor:latest python -m src.whale_monitor BTCUSDT
+docker run -d -v $(pwd)/data:/app/data -v $(pwd)/logs:/app/logs --env-file .env --name whale-eth whale-monitor:latest python -m src.whale_monitor ETHUSDT
+docker run -d -v $(pwd)/data:/app/data -v $(pwd)/logs:/app/logs --env-file .env --name whale-sol whale-monitor:latest python -m src.whale_monitor SOLUSDT
 ```
 
 ## Configuration
@@ -139,6 +196,8 @@ LOG_FORMAT=json
 ```
 
 ## Data Persistence
+
+> **⚠️ CRITICAL: Without volume mounts, all collected data will be LOST when the container is removed!**
 
 ### Volume Mounts
 
@@ -464,10 +523,18 @@ docker system prune -a --volumes
 # Build
 docker build -f Dockerfile.whale-monitor -t whale-monitor .
 
-# Run basic
+# ✅ RECOMMENDED: Run with volumes (data persists)
+docker run -d \
+  --name whale-monitor \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env \
+  whale-monitor:latest python -m src.whale_monitor 1
+
+# ❌ AVOID: Run without volumes (data lost on container removal)
 docker run -d --name whale-monitor whale-monitor
 
-# Run with everything
+# Full production setup
 docker run -d \
   --name whale-monitor \
   --restart unless-stopped \
@@ -478,10 +545,14 @@ docker run -d \
   --cpus="1" \
   whale-monitor:latest python -m src.whale_monitor 1
 
+# Check data is being saved
+ls -la data/whales/
+docker exec whale-monitor ls -la /app/data/whales/
+
 # Stop
 docker stop whale-monitor
 
-# Remove
+# Remove (data persists if volumes were used)
 docker rm whale-monitor
 
 # Logs
