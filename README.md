@@ -12,7 +12,7 @@ A sophisticated cryptocurrency trading system that detects and analyzes large or
 - **Generates** trading signals with 55-85% confidence rates
 - **Generates** trading signals based on 5 proven strategies
 - **Alerts** via Telegram when opportunities arise
-- **Stores** all data in CSV format for analysis
+- **Stores** all data in CSV format and InfluxDB for time-series analysis
 
 ### Proven Results
 
@@ -53,6 +53,13 @@ TELEGRAM_CHAT_ID=your_chat_id_here
 
 # Trading Pairs (format: SYMBOL:whale_threshold:mega_whale_threshold)
 PAIRS=SEIUSDT:50000:250000,WLDUSDT:50000:250000,1000PEPEUSDT:25000:125000
+
+# InfluxDB Configuration (for time-series data storage)
+INFLUXDB_TOKEN=your_influxdb_token_here
+INFLUXDB_URL=http://localhost:8086
+INFLUXDB_ORG=bitpulse
+INFLUXDB_BUCKET=whale_analytics
+INFLUXDB_ENABLED=true
 
 # Optional Settings
 SNAPSHOT_INTERVAL=5  # Order book snapshot frequency (seconds)
@@ -102,7 +109,9 @@ whale-analytics-system/
 │   │   └── spoofing_detector.py  # Detects market manipulation
 │   │
 │   ├── storage/
-│   │   └── csv_storage.py        # Saves data to CSV files
+│   │   ├── csv_logger.py         # Saves data to CSV files
+│   │   ├── influxdb_logger.py    # Saves data to InfluxDB
+│   │   └── memory_store.py       # In-memory data storage
 │   │
 │   └── alerts/
 │       └── telegram_alerts.py    # Sends Telegram notifications
@@ -151,6 +160,7 @@ Five proven strategies generate trading signals:
 
 ### 4. Data Storage
 
+#### CSV Storage
 All data saved in organized CSV format:
 
 ```
@@ -161,6 +171,16 @@ data/
     ├── SYMBOL_snapshots_2024-01-15_14.csv   # Order book snapshots
     └── SYMBOL_prices_2024-01-15_14.csv      # Price data
 ```
+
+#### InfluxDB Storage
+Time-series data stored in InfluxDB for advanced analytics:
+
+- **whale_order**: Individual whale orders with price, quantity, USD value
+- **price_data**: Market prices, spreads, liquidity metrics
+- **manipulation_event**: Detected spoofing and manipulation events
+- **order_book_snapshot**: Summary metrics of order book state
+- **spoofing_detection**: Specific spoofed orders that disappeared
+- **market_metrics**: Aggregated market health indicators
 
 ## 📊 Trading Strategies
 
@@ -466,6 +486,8 @@ cat backtest_SYMBOL_DATE.json  # View backtest results
 
 - **[DOCUMENTATION.md](DOCUMENTATION.md)** - Complete technical documentation
 - **[TRADING_STRATEGIES.md](TRADING_STRATEGIES.md)** - Detailed strategy explanations
+- **[docs/influxdb_setup.md](docs/influxdb_setup.md)** - InfluxDB setup and usage guide
+- **[docs/data_schema.md](docs/data_schema.md)** - Complete data schema documentation
 - **[data/README.md](data/README.md)** - Data format specifications
 
 ## ⚠️ Important Disclaimers
