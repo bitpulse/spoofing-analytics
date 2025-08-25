@@ -99,35 +99,44 @@ class InfluxDBLogger:
         except Exception as e:
             logger.error(f"Failed to write whale order to InfluxDB: {e}")
     
-    def write_price_data(self, price_data: Dict[str, Any]):
+    def write_price_data(self, price_data: Any):
         """
         Write price and market data to InfluxDB.
         
         Args:
-            price_data: Price and market data
+            price_data: PriceData dataclass object
         """
         if not self.enabled:
             return
             
         try:
-            symbol = price_data.get("symbol", "UNKNOWN")
-            
+            # Direct access to PriceData dataclass attributes
             point = Point("price_data") \
-                .tag("symbol", symbol) \
-                .field("mid_price", float(price_data.get("mid_price", 0))) \
-                .field("best_bid", float(price_data.get("best_bid", 0))) \
-                .field("best_ask", float(price_data.get("best_ask", 0))) \
-                .field("spread_usd", float(price_data.get("spread_usd", 0))) \
-                .field("spread_bps", float(price_data.get("spread_bps", 0))) \
-                .field("bid_liquidity_1pct", float(price_data.get("bid_liquidity_1pct", 0))) \
-                .field("ask_liquidity_1pct", float(price_data.get("ask_liquidity_1pct", 0))) \
-                .field("bid_whale_count", int(price_data.get("bid_whale_count", 0))) \
-                .field("ask_whale_count", int(price_data.get("ask_whale_count", 0))) \
-                .field("bid_whale_value", float(price_data.get("bid_whale_value", 0))) \
-                .field("ask_whale_value", float(price_data.get("ask_whale_value", 0))) \
-                .field("liquidity_imbalance", float(price_data.get("liquidity_imbalance", 0))) \
-                .field("whale_imbalance", float(price_data.get("whale_imbalance", 0))) \
-                .field("market_pressure", price_data.get("market_pressure", "neutral")) \
+                .tag("symbol", price_data.symbol) \
+                .field("mid_price", float(price_data.mid_price)) \
+                .field("best_bid", float(price_data.bid_price)) \
+                .field("best_ask", float(price_data.ask_price)) \
+                .field("last_price", float(price_data.last_price)) \
+                .field("mark_price", float(price_data.mark_price)) \
+                .field("index_price", float(price_data.index_price)) \
+                .field("volume_24h", float(price_data.volume_24h)) \
+                .field("volume_usd_24h", float(price_data.volume_usd_24h)) \
+                .field("trade_count_24h", int(price_data.trade_count_24h)) \
+                .field("buy_volume_5min", float(price_data.buy_volume_5min)) \
+                .field("sell_volume_5min", float(price_data.sell_volume_5min)) \
+                .field("trade_count_5min", int(price_data.trade_count_5min)) \
+                .field("price_change_1min", float(price_data.price_change_1min)) \
+                .field("price_change_5min", float(price_data.price_change_5min)) \
+                .field("price_change_1h", float(price_data.price_change_1h)) \
+                .field("high_5min", float(price_data.high_5min)) \
+                .field("low_5min", float(price_data.low_5min)) \
+                .field("active_whale_count", int(price_data.active_whale_count)) \
+                .field("recent_spoof_count", int(price_data.recent_spoof_count)) \
+                .field("whale_bid_value", float(price_data.whale_bid_value)) \
+                .field("whale_ask_value", float(price_data.whale_ask_value)) \
+                .field("funding_rate", float(price_data.funding_rate)) \
+                .field("open_interest", float(price_data.open_interest)) \
+                .field("liquidations_5min", float(price_data.liquidations_5min)) \
                 .time(datetime.utcnow(), WritePrecision.NS)
             
             self.write_api.write(bucket=self.bucket, record=point)
