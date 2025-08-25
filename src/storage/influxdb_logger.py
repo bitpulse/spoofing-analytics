@@ -172,8 +172,8 @@ class InfluxDBLogger:
             
         try:
             # Calculate metrics
-            total_bid_volume = sum(order.quantity for order in snapshot.bids[:20])
-            total_ask_volume = sum(order.quantity for order in snapshot.asks[:20])
+            total_bid_volume = sum(order.size for order in snapshot.bids[:20])
+            total_ask_volume = sum(order.size for order in snapshot.asks[:20])
             
             point = Point("order_book_snapshot") \
                 .tag("symbol", snapshot.symbol) \
@@ -194,7 +194,7 @@ class InfluxDBLogger:
                 self.write_whale_order({
                     "side": "bid",
                     "price": whale.price,
-                    "quantity": whale.quantity,
+                    "quantity": whale.size,
                     "value_usd": whale.value_usd,
                     "distance_from_mid_bps": whale.distance_from_mid_bps,
                     "is_mega_whale": whale.is_mega_whale,
@@ -205,7 +205,7 @@ class InfluxDBLogger:
                 self.write_whale_order({
                     "side": "ask",
                     "price": whale.price,
-                    "quantity": whale.quantity,
+                    "quantity": whale.size,
                     "value_usd": whale.value_usd,
                     "distance_from_mid_bps": whale.distance_from_mid_bps,
                     "is_mega_whale": whale.is_mega_whale,
