@@ -30,16 +30,16 @@ Build the whale monitor image using the provided Dockerfile:
 
 ```bash
 # Basic build
-docker build -t whale-monitor:latest .
+docker build -f Dockerfile.whale-monitor -t whale-monitor:latest .
 
 # Build with specific tag
-docker build -t whale-monitor:v1.0 .
+docker build -f Dockerfile.whale-monitor -t whale-monitor:v1.0 .
 
 # Build with no cache (fresh build)
-docker build --no-cache -t whale-monitor:latest .
+docker build -f Dockerfile.whale-monitor --no-cache -t whale-monitor:latest .
 
 # Multi-platform build (for ARM/AMD64)
-docker buildx build --platform linux/amd64,linux/arm64 -t whale-monitor:latest .
+docker buildx build -f Dockerfile.whale-monitor --platform linux/amd64,linux/arm64 -t whale-monitor:latest .
 ```
 
 ## Running Containers
@@ -462,7 +462,7 @@ docker system prune -a --volumes
 
 ```bash
 # Build
-docker build -t whale-monitor .
+docker build -f Dockerfile.whale-monitor -t whale-monitor .
 
 # Run basic
 docker run -d --name whale-monitor whale-monitor
