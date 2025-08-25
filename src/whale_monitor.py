@@ -76,13 +76,8 @@ class WhaleAnalyticsSystem:
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
         
-        # Create a shared CSV logger instance with Redis support
-        self.csv_logger = CSVLogger(
-            enable_redis=True,
-            redis_host=config.redis_host,
-            redis_port=config.redis_port,
-            redis_db=config.redis_db
-        )
+        # Create a shared CSV logger instance
+        self.csv_logger = CSVLogger()
         
         # Initialize InfluxDB logger
         self.influxdb_logger = InfluxDBLogger(

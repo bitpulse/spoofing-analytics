@@ -12,7 +12,6 @@ import gzip
 import threading
 from queue import Queue
 from loguru import logger
-from src.storage.redis_storage import RedisSpoofStorage
 
 
 @dataclass
@@ -118,8 +117,7 @@ class AlertEvent:
 class CSVLogger:
     """Manages CSV logging with daily rotation and compression"""
     
-    def __init__(self, base_dir: str = "data", enable_redis: bool = True,
-                 redis_host: str = "127.0.0.1", redis_port: int = 6379, redis_db: int = 0):
+    def __init__(self, base_dir: str = "data"):
         self.base_dir = Path(base_dir)
         self.ensure_directories()
         
@@ -131,19 +129,7 @@ class CSVLogger:
         self.write_queue = Queue()
         self.running = True
         
-        # Initialize Redis storage if enabled
-        self.redis_storage = None
-        if enable_redis:
-            try:
-                self.redis_storage = RedisSpoofStorage(
-                    host=redis_host,
-                    port=redis_port,
-                    db=redis_db
-                )
-                logger.info("Redis storage enabled for spoofing data")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Redis storage: {e}. Continuing with CSV only.")
-                self.redis_storage = None
+        # Redis storage removed - using InfluxDB for time-series data
         
         # Start writer thread
         self.writer_thread = threading.Thread(target=self._process_write_queue, daemon=True)
@@ -266,15 +252,7 @@ class CSVLogger:
         )
         self.log_spoofing(event)
         
-        # Also save directly to Redis if available (for immediate access)
-        if self.redis_storage:
-            try:
-                # Add pattern to the data dict for Redis
-                spoof_data['spoof_pattern'] = pattern
-                spoof_data['timestamp'] = event.timestamp
-                self.redis_storage.save_spoof(spoof_data)
-            except Exception as e:
-                logger.debug(f"Failed to save spoof to Redis: {e}")
+        # Redis removed - data is saved to InfluxDB for real-time access
         
     def log_snapshot_from_dict(self, snapshot: Any):
         """Log market snapshot from OrderBookSnapshot object"""
@@ -329,12 +307,7 @@ class CSVLogger:
         filename = self.get_filename("spoofing", event.symbol)
         self._write_csv_row(filename, asdict(event), SpoofingEvent)
         
-        # Also save to Redis if available
-        if self.redis_storage:
-            try:
-                self.redis_storage.save_spoof(asdict(event))
-            except Exception as e:
-                logger.debug(f"Failed to save spoof to Redis: {e}")
+        # Redis removed - data is saved to InfluxDB for cross-process access
         
     def _write_snapshot(self, event: MarketSnapshot):
         """Write market snapshot to CSV - per symbol file"""
