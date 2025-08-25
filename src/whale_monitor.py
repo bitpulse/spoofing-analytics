@@ -76,8 +76,8 @@ class WhaleAnalyticsSystem:
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
         
-        # Create a shared CSV logger instance
-        self.csv_logger = CSVLogger()
+        # Create CSV logger only if enabled
+        self.csv_logger = CSVLogger() if config.csv_logging_enabled else None
         
         # Initialize InfluxDB logger
         self.influxdb_logger = InfluxDBLogger(
@@ -93,11 +93,12 @@ class WhaleAnalyticsSystem:
         
         # Pass CSV logger to both Telegram manager and analyzer
         self.telegram_manager = TelegramAlertManager(
-            csv_logger=self.csv_logger,
+            csv_logger=self.csv_logger,  # Will be None if CSV disabled
             symbols_list=self.symbols_to_monitor
         ) if config.telegram_alerts_enabled else None
-        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)  # Disable analyzer's own CSV logger
-        self.analyzer.csv_logger = self.csv_logger  # Use shared CSV logger instead
+        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)
+        if config.csv_logging_enabled:
+            self.analyzer.csv_logger = self.csv_logger
         
         self.storage = MemoryStore()
         
@@ -176,7 +177,7 @@ class WhaleAnalyticsSystem:
             # Collect and save price data every second (with thread safety)
             with self.price_collectors_lock:
                 if symbol not in self.price_collectors:
-                    self.price_collectors[symbol] = PriceCollector(symbol)
+                    self.price_collectors[symbol] = PriceCollector(symbol, enable_csv=config.csv_logging_enabled)
                 price_collector = self.price_collectors[symbol]
             
             # Collect price data (now synchronous)
