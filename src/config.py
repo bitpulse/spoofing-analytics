@@ -66,7 +66,7 @@ class Config(BaseSettings):
     influxdb_token: str = Field(default="", env="INFLUXDB_TOKEN")
     influxdb_org: str = Field(default="bitpulse", env="INFLUXDB_ORG")
     influxdb_bucket: str = Field(default="whale_analytics", env="INFLUXDB_BUCKET")
-    influxdb_enabled: bool = Field(default=True, env="INFLUXDB_ENABLED")
+    influxdb_enabled: bool = Field(default=True, env="INFLUXDB_ENABLED")  # Default enabled
     
     
     model_config = {

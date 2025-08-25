@@ -35,6 +35,9 @@ class InfluxDBLogger:
             enable: Whether to enable logging
         """
         self.enabled = enable and token is not None
+        self.error_count = 0
+        self.max_errors = 10  # Stop logging errors after 10 failures
+        self.last_error_time = 0
         
         if not self.enabled:
             logger.warning("InfluxDB logging disabled or token not provided")
@@ -65,7 +68,7 @@ class InfluxDBLogger:
                 self.enabled = False
                 
         except Exception as e:
-            logger.error(f"Failed to connect to InfluxDB: {e}")
+            logger.warning(f"InfluxDB connection failed, will retry later: {e}")
             self.enabled = False
     
     def write_whale_order(self, whale_order: Dict[str, Any], symbol: str):
@@ -172,8 +175,8 @@ class InfluxDBLogger:
             
         try:
             # Calculate metrics
-            total_bid_volume = sum(order.quantity for order in snapshot.bids[:20])
-            total_ask_volume = sum(order.quantity for order in snapshot.asks[:20])
+            total_bid_volume = sum(order.size for order in snapshot.bids[:20])
+            total_ask_volume = sum(order.size for order in snapshot.asks[:20])
             
             point = Point("order_book_snapshot") \
                 .tag("symbol", snapshot.symbol) \
@@ -194,7 +197,7 @@ class InfluxDBLogger:
                 self.write_whale_order({
                     "side": "bid",
                     "price": whale.price,
-                    "quantity": whale.quantity,
+                    "quantity": whale.size,
                     "value_usd": whale.value_usd,
                     "distance_from_mid_bps": whale.distance_from_mid_bps,
                     "is_mega_whale": whale.is_mega_whale,
@@ -205,7 +208,7 @@ class InfluxDBLogger:
                 self.write_whale_order({
                     "side": "ask",
                     "price": whale.price,
-                    "quantity": whale.quantity,
+                    "quantity": whale.size,
                     "value_usd": whale.value_usd,
                     "distance_from_mid_bps": whale.distance_from_mid_bps,
                     "is_mega_whale": whale.is_mega_whale,
@@ -213,7 +216,15 @@ class InfluxDBLogger:
                 }, snapshot.symbol)
                 
         except Exception as e:
-            logger.error(f"Failed to write order book snapshot to InfluxDB: {e}")
+            # Rate limit error logging
+            current_time = time.time()
+            if self.error_count < self.max_errors:
+                if current_time - self.last_error_time > 60:  # Only log once per minute
+                    logger.error(f"Failed to write order book snapshot to InfluxDB: {e}")
+                    self.error_count += 1
+                    self.last_error_time = current_time
+                    if self.error_count == self.max_errors:
+                        logger.warning("InfluxDB write errors exceeded limit, suppressing further errors")
     
     def write_spoofing_detection(self, symbol: str, spoofed_orders: List[Dict[str, Any]]):
         """
