@@ -64,6 +64,7 @@ from src.models.order_book import OrderBookSnapshot
 from src.analyzers.order_book_analyzer import OrderBookAnalyzer
 from src.storage.memory_store import MemoryStore
 from src.storage.csv_logger import CSVLogger
+from src.storage.influxdb_logger import InfluxDBLogger
 from src.alerts.telegram_manager import TelegramAlertManager
 
 
@@ -75,12 +76,16 @@ class WhaleAnalyticsSystem:
         # Initialize components
         self.ws_manager = BinanceWebSocketManager(config.binance_ws_base_url)
         
-        # Create a shared CSV logger instance with Redis support
-        self.csv_logger = CSVLogger(
-            enable_redis=True,
-            redis_host=config.redis_host,
-            redis_port=config.redis_port,
-            redis_db=config.redis_db
+        # Create CSV logger only if enabled
+        self.csv_logger = CSVLogger() if config.csv_logging_enabled else None
+        
+        # Initialize InfluxDB logger
+        self.influxdb_logger = InfluxDBLogger(
+            url=config.influxdb_url,
+            token=config.influxdb_token,
+            org=config.influxdb_org,
+            bucket=config.influxdb_bucket,
+            enable=config.influxdb_enabled
         )
         
         # Get symbols to use
@@ -88,11 +93,12 @@ class WhaleAnalyticsSystem:
         
         # Pass CSV logger to both Telegram manager and analyzer
         self.telegram_manager = TelegramAlertManager(
-            csv_logger=self.csv_logger,
+            csv_logger=self.csv_logger,  # Will be None if CSV disabled
             symbols_list=self.symbols_to_monitor
         ) if config.telegram_alerts_enabled else None
-        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)  # Disable analyzer's own CSV logger
-        self.analyzer.csv_logger = self.csv_logger  # Use shared CSV logger instead
+        self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)
+        if config.csv_logging_enabled:
+            self.analyzer.csv_logger = self.csv_logger
         
         self.storage = MemoryStore()
         
@@ -165,10 +171,13 @@ class WhaleAnalyticsSystem:
             # Store in memory
             self.storage.store_snapshot(analyzed_snapshot)
             
+            # Write to InfluxDB
+            self.influxdb_logger.write_order_book_snapshot(analyzed_snapshot)
+            
             # Collect and save price data every second (with thread safety)
             with self.price_collectors_lock:
                 if symbol not in self.price_collectors:
-                    self.price_collectors[symbol] = PriceCollector(symbol)
+                    self.price_collectors[symbol] = PriceCollector(symbol, enable_csv=config.csv_logging_enabled)
                 price_collector = self.price_collectors[symbol]
             
             # Collect price data (now synchronous)
@@ -180,6 +189,8 @@ class WhaleAnalyticsSystem:
             # Save price data if it's been at least 1 second
             if price_collector.should_save():
                 price_collector.save_price_data(price_data)
+                # Also write to InfluxDB
+                self.influxdb_logger.write_price_data(price_data)
                 logger.debug(f"Saved price data for {symbol}")
             
             # Check for whale changes (spoofing detection)
@@ -266,6 +277,11 @@ class WhaleAnalyticsSystem:
                     spoofed_orders = self.analyzer.detect_spoofing()
                     if spoofed_orders:
                         logger.warning(f"Detected {len(spoofed_orders)} potential spoofing attempts")
+                        # Write spoofing detections to InfluxDB
+                        for symbol in self.symbols_to_monitor:
+                            symbol_spoofs = [s for s in spoofed_orders if symbol in str(s)]
+                            if symbol_spoofs:
+                                self.influxdb_logger.write_spoofing_detection(symbol, symbol_spoofs)
                         
                 if loop_count % 360 == 0:  # Every hour
                     self.storage.cleanup_old_data(hours=24)
@@ -311,6 +327,9 @@ class WhaleAnalyticsSystem:
         # Stop Telegram manager
         if self.telegram_manager:
             self.telegram_manager.stop()
+        
+        # Close InfluxDB connection
+        self.influxdb_logger.close()
         
         # Final stats
         self._print_stats()

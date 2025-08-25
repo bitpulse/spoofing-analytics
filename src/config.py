@@ -41,9 +41,7 @@ class Config(BaseSettings):
     mega_whale_order_threshold: float = Field(default=500000, env="MEGA_WHALE_ORDER_THRESHOLD")
     
     # Storage Configuration
-    redis_host: str = Field(default="127.0.0.1", env="REDIS_HOST")
-    redis_port: int = Field(default=6379, env="REDIS_PORT")
-    redis_db: int = Field(default=0, env="REDIS_DB")
+    csv_logging_enabled: bool = Field(default=False, env="CSV_LOGGING_ENABLED")  # Disabled by default - using InfluxDB
     
     # Database URL for historical data
     database_url: str = Field(
@@ -62,6 +60,13 @@ class Config(BaseSettings):
     telegram_bot_token: str = Field(default="", env="TELEGRAM_BOT_TOKEN")
     telegram_channel_id: str = Field(default="", env="TELEGRAM_CHANNEL_ID")
     telegram_alerts_enabled: bool = Field(default=False, env="TELEGRAM_ALERTS_ENABLED")
+    
+    # InfluxDB Configuration (Primary storage)
+    influxdb_url: str = Field(default="http://localhost:8086", env="INFLUXDB_URL")
+    influxdb_token: str = Field(default="", env="INFLUXDB_TOKEN")
+    influxdb_org: str = Field(default="bitpulse", env="INFLUXDB_ORG")
+    influxdb_bucket: str = Field(default="whale_analytics", env="INFLUXDB_BUCKET")
+    influxdb_enabled: bool = Field(default=True, env="INFLUXDB_ENABLED")
     
     
     model_config = {

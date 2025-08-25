@@ -59,10 +59,15 @@ class PriceData:
 class PriceCollector:
     """Collects comprehensive price data for analysis"""
     
-    def __init__(self, symbol: str = "SEIUSDT"):
+    def __init__(self, symbol: str = "SEIUSDT", enable_csv: bool = False):
         self.symbol = symbol
-        self.data_dir = Path(f"data/prices/{symbol}")
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.enable_csv = enable_csv  # CSV disabled by default
+        
+        if self.enable_csv:
+            self.data_dir = Path(f"data/prices/{symbol}")
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.data_dir = None
         
         # Rolling windows for calculations (using deque for automatic size management)
         from collections import deque
@@ -70,14 +75,19 @@ class PriceCollector:
         self.trade_history = deque(maxlen=300)  # Last 300 trades
         self.last_save_time = time.time()
         
-        # CSV file management with async queue
-        import threading
-        import queue
-        self.save_queue = queue.Queue(maxsize=1000)
-        self.writer_thread = None
-        self.running = False
-        self.current_csv_path = None
-        self._start_async_writer()
+        # CSV file management with async queue (only if enabled)
+        if self.enable_csv:
+            import threading
+            import queue
+            self.save_queue = queue.Queue(maxsize=1000)
+            self.writer_thread = None
+            self.running = False
+            self.current_csv_path = None
+            self._start_async_writer()
+        else:
+            self.save_queue = None
+            self.writer_thread = None
+            self.running = False
         
     def get_current_csv_path(self) -> Path:
         """Get path for current hour's CSV file"""
@@ -174,7 +184,9 @@ class PriceCollector:
         return price_data
     
     def _start_async_writer(self):
-        """Start background thread for async CSV writing"""
+        """Start background thread for async CSV writing (only if CSV enabled)"""
+        if not self.enable_csv:
+            return
         import threading
         self.running = True
         self.writer_thread = threading.Thread(target=self._async_writer_loop, daemon=True)
@@ -231,7 +243,11 @@ class PriceCollector:
             file_handle.close()
     
     def save_price_data(self, price_data: PriceData):
-        """Queue price data for async CSV writing"""
+        """Queue price data for async CSV writing (if enabled)"""
+        if not self.enable_csv:
+            self.last_save_time = time.time()  # Still update time for should_save()
+            return  # CSV disabled, skip saving
+            
         # Convert to dict for CSV
         data_dict = asdict(price_data)
         data_dict['timestamp'] = price_data.timestamp.isoformat()
