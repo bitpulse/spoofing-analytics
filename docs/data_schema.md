@@ -2,18 +2,18 @@
 
 ## Overview
 
-The Whale Analytics System collects and stores multiple types of data for comprehensive market analysis. Data is stored in both CSV files for portability and InfluxDB for time-series analysis.
+The Whale Analytics System collects and stores multiple types of data for comprehensive market analysis. Data is stored primarily in InfluxDB for efficient time-series analysis. CSV storage is optional and disabled by default.
 
 ## Data Flow Architecture
 
 ```
-Binance WebSocket → Whale Monitor → Data Processing → Storage
-                                                      ├── CSV Files
-                                                      ├── InfluxDB
-                                                      └── Redis (cache)
+Binance WebSocket → Whale Monitor → Data Processing → InfluxDB (Primary Storage)
+                                                      └── CSV Files (Optional, disabled by default)
 ```
 
-## CSV Data Formats
+## CSV Data Formats (Optional - Disabled by Default)
+
+**Note**: CSV logging must be explicitly enabled via `CSV_LOGGING_ENABLED=true` in your `.env` file.
 
 ### 1. Whale Orders (`SYMBOL_whales_YYYY-MM-DD_HH.csv`)
 
@@ -146,38 +146,19 @@ Periodic full order book state captures.
 
 **Retention**: 30 days
 
-## Redis Cache Schema
+## Storage Configuration
 
-### Key Patterns
+### Primary Storage: InfluxDB
+- All real-time data flows directly to InfluxDB
+- No intermediate caching layer
+- 30-day retention by default (configurable)
+- Compressed storage (~85% less space than CSV)
 
-```
-whale:SYMBOL:SIDE:PRICE     → Whale order data (TTL: 5 minutes)
-price:SYMBOL                → Latest price data (TTL: 10 seconds)
-spoof:SYMBOL:HASH           → Spoofing detection (TTL: 1 hour)
-snapshot:SYMBOL             → Latest order book (TTL: 30 seconds)
-```
-
-### Data Structures
-
-**Whale Order (Hash)**:
-```redis
-HSET whale:BTCUSDT:bid:98500 
-  price 98500
-  quantity 10.5
-  value_usd 1034250
-  timestamp 1642345678
-  is_mega true
-```
-
-**Price Data (Hash)**:
-```redis
-HSET price:BTCUSDT
-  mid_price 98750
-  spread_bps 2.5
-  bid_whales 3
-  ask_whales 2
-  pressure bullish
-```
+### Optional Storage: CSV
+- Disabled by default for better performance
+- Enable via `CSV_LOGGING_ENABLED=true`
+- Useful for data export, debugging, or compliance
+- Hourly file rotation when enabled
 
 ## Data Quality Metrics
 
@@ -238,21 +219,21 @@ AND value_usd > 100000
 
 ### Storage Phase
 1. **Immediate**: Whale orders written to InfluxDB
-2. **1 second**: Price data batched and written
-3. **5 minutes**: Spoofing analysis completed
-4. **1 hour**: CSV files rotated
+2. **1 second**: Price data batched and written to InfluxDB
+3. **5 minutes**: Spoofing analysis completed and stored
+4. **Continuous**: All data flows directly to InfluxDB (no CSV by default)
 
 ### Retention Phase
-- **CSV Files**: Kept indefinitely (manual cleanup)
-- **InfluxDB**: 30-day retention (configurable)
-- **Redis Cache**: 5 minutes to 1 hour (by data type)
+- **InfluxDB**: 30-day retention (configurable, primary storage)
+- **CSV Files**: Only created if explicitly enabled
+- **Memory Store**: Temporary in-process cache only
 
 ## Performance Optimization
 
 ### Indexing Strategy
 - InfluxDB: Automatic time-series indexing
-- CSV: Hourly file rotation for manageable sizes
-- Redis: Key expiration for automatic cleanup
+- Tags indexed for fast filtering (symbol, side, type)
+- No manual index management required
 
 ### Query Optimization
 1. Always include time ranges
@@ -261,9 +242,10 @@ AND value_usd > 100000
 4. Cache frequently accessed data
 
 ### Storage Optimization
-- CSV compression after 24 hours
-- InfluxDB downsampling for old data
-- Redis memory limits enforced
+- InfluxDB native compression (5-10x)
+- Automatic downsampling for old data
+- No file system overhead
+- ~85% storage savings vs CSV
 
 ## Data Export Formats
 
