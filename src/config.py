@@ -63,6 +63,13 @@ class Config(BaseSettings):
     telegram_channel_id: str = Field(default="", env="TELEGRAM_CHANNEL_ID")
     telegram_alerts_enabled: bool = Field(default=False, env="TELEGRAM_ALERTS_ENABLED")
     
+    # InfluxDB Configuration
+    influxdb_url: str = Field(default="http://localhost:8086", env="INFLUXDB_URL")
+    influxdb_token: str = Field(default="", env="INFLUXDB_TOKEN")
+    influxdb_org: str = Field(default="bitpulse", env="INFLUXDB_ORG")
+    influxdb_bucket: str = Field(default="whale_analytics", env="INFLUXDB_BUCKET")
+    influxdb_enabled: bool = Field(default=True, env="INFLUXDB_ENABLED")
+    
     
     model_config = {
         "env_file": ".env",
