@@ -314,8 +314,8 @@ class TelegramAlertManager:
                         was_throttled=False
                     )
                     self.csv_logger.log_alert(alert_event)
-                if self.influxdb_logger:
-                    self.influxdb_logger.log_alert(alert_event)
+                    if self.influxdb_logger:
+                        self.influxdb_logger.log_alert(alert_event)
                 except Exception as e:
                     logger.error(f"Failed to log startup message to CSV: {e}")
         
@@ -358,8 +358,8 @@ class TelegramAlertManager:
                         was_throttled=False
                     )
                     self.csv_logger.log_alert(alert_event)
-                if self.influxdb_logger:
-                    self.influxdb_logger.log_alert(alert_event)
+                    if self.influxdb_logger:
+                        self.influxdb_logger.log_alert(alert_event)
                 except Exception as e:
                     logger.error(f"Failed to log summary to CSV: {e}")
         
@@ -464,6 +464,8 @@ class TelegramAlertManager:
                     was_throttled=False
                 )
                 self.csv_logger.log_alert(alert_event)
+                if self.influxdb_logger:
+                    self.influxdb_logger.log_alert(alert_event)
             except Exception as e:
                 logger.error(f"Failed to log whale alert to CSV: {e}")
         
@@ -507,6 +509,8 @@ class TelegramAlertManager:
                     was_throttled=False
                 )
                 self.csv_logger.log_alert(alert_event)
+                if self.influxdb_logger:
+                    self.influxdb_logger.log_alert(alert_event)
             except Exception as e:
                 logger.error(f"Failed to log market alert to CSV: {e}")
         
@@ -571,6 +575,8 @@ class TelegramAlertManager:
                     was_throttled=False
                 )
                 self.csv_logger.log_alert(alert_event)
+                if self.influxdb_logger:
+                    self.influxdb_logger.log_alert(alert_event)
             except Exception as e:
                 logger.error(f"Failed to log spoofing alert to CSV: {e}")
         
