@@ -46,6 +46,9 @@ class OrderBookAnalyzer:
         self.csv_logger = CSVLogger() if enable_csv_logging else None
         self.snapshot_counter = 0  # Log snapshots periodically
         
+        # Initialize InfluxDB logger (to be set from whale_monitor)
+        self.influxdb_logger = None
+        
     def _get_thresholds(self, symbol: str) -> tuple:
         """Get whale thresholds for a specific symbol"""
         if symbol not in self.symbol_thresholds:
@@ -126,6 +129,9 @@ class OrderBookAnalyzer:
                         # Only log if we haven't logged this spoof before
                         if spoof_key not in self.logged_spoofs_set:
                             self.csv_logger.log_spoofing_from_dict(whale_summary)
+                            # Also log to InfluxDB if available
+                            if self.influxdb_logger:
+                                self.influxdb_logger.log_spoofing_from_dict(whale_summary)
                             self.logged_spoofs.append(spoof_key)  # Add to deque
                             self.logged_spoofs_set.add(spoof_key)  # Add to set for lookups
                             
@@ -159,8 +165,12 @@ class OrderBookAnalyzer:
         
         # Log market snapshot periodically (every 600 snapshots = ~1 minute at 100ms)
         self.snapshot_counter += 1
-        if self.csv_logger and self.snapshot_counter % 600 == 0:
-            self.csv_logger.log_snapshot_from_dict(snapshot)
+        if self.snapshot_counter % 600 == 0:
+            if self.csv_logger:
+                self.csv_logger.log_snapshot_from_dict(snapshot)
+            # Also log to InfluxDB if available
+            if self.influxdb_logger:
+                self.influxdb_logger.log_snapshot_from_dict(snapshot)
         
         # Log significant events
         self._log_significant_events(snapshot)
@@ -259,6 +269,9 @@ class OrderBookAnalyzer:
                                 'ask_depth_1pct': 0
                             }
                             self.csv_logger.log_whale_from_dict(whale_summary, snapshot_context)
+                            # Also log to InfluxDB if available
+                            if self.influxdb_logger:
+                                self.influxdb_logger.log_whale_from_dict(whale_summary, snapshot_context)
                             
                             # Update last logged state
                             self.last_logged_whale_state[whale_id] = (level.size, level.price, value_usd, now)

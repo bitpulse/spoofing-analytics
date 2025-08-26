@@ -94,11 +94,14 @@ class WhaleAnalyticsSystem:
         # Pass CSV logger to both Telegram manager and analyzer
         self.telegram_manager = TelegramAlertManager(
             csv_logger=self.csv_logger,  # Will be None if CSV disabled
+            influxdb_logger=self.influxdb_logger,
             symbols_list=self.symbols_to_monitor
         ) if config.telegram_alerts_enabled else None
         self.analyzer = OrderBookAnalyzer(telegram_manager=self.telegram_manager, enable_csv_logging=False)
         if config.csv_logging_enabled:
             self.analyzer.csv_logger = self.csv_logger
+        # Pass InfluxDB logger to analyzer
+        self.analyzer.influxdb_logger = self.influxdb_logger
         
         self.storage = MemoryStore()
         

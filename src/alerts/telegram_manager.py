@@ -17,11 +17,12 @@ from src.storage.csv_logger import AlertEvent
 class TelegramAlertManager:
     """Manages Telegram notifications for whale alerts"""
     
-    def __init__(self, csv_logger=None, symbols_list=None):
+    def __init__(self, csv_logger=None, symbols_list=None, influxdb_logger=None):
         self.enabled = config.telegram_alerts_enabled
         self.bot = None
         self.channel_id = config.telegram_channel_id
         self.csv_logger = csv_logger  # CSV logger for saving alerts
+        self.influxdb_logger = influxdb_logger  # InfluxDB logger for saving alerts
         self.symbols_list = symbols_list if symbols_list else config.symbols_list  # Symbols to monitor
         
         # Alert throttling - prevent spam
@@ -313,6 +314,8 @@ class TelegramAlertManager:
                         was_throttled=False
                     )
                     self.csv_logger.log_alert(alert_event)
+                if self.influxdb_logger:
+                    self.influxdb_logger.log_alert(alert_event)
                 except Exception as e:
                     logger.error(f"Failed to log startup message to CSV: {e}")
         
@@ -355,6 +358,8 @@ class TelegramAlertManager:
                         was_throttled=False
                     )
                     self.csv_logger.log_alert(alert_event)
+                if self.influxdb_logger:
+                    self.influxdb_logger.log_alert(alert_event)
                 except Exception as e:
                     logger.error(f"Failed to log summary to CSV: {e}")
         
